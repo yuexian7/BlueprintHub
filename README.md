@@ -25,7 +25,7 @@ dotnet build -c Release          # 0 错误；后处理会补三平台 Burst 桩
 ```
 数据面（改契约时要跑）：
 ```bash
-cd workshop && npm ci && npm run check     # 校验；npm run build 重建 catalog
+cd ../blueprinthub-workshop && npm ci && npm run check     # 校验；npm run build 重建 catalog
 ```
 
 ## 目录
@@ -34,7 +34,7 @@ Bpc/         纯逻辑：分类/面积档/排序/相关度/镜像轮转/失败�
 Platform/    数据面客户端（复用 HttpClient、12s 超时、哈希复核）、本地库目录口径
 Systems/     采集与套用（M3/M4）
 UI/          React + webpack 面板（M1）
-workshop/    公共数据面：schema、catalog 生成器、容量与限速实据
+(同级仓库) ../blueprinthub-workshop/   公共数据面：schema、catalog 生成器、容量与限速实据
 research/    反编译与取证产物（不进 git、不编进产物）
 ```
 

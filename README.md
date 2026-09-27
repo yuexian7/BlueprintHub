@@ -5,7 +5,7 @@
 **工作原理（一句话版）**：蓝图不是存档、不是资产包，而是**配方** —— 上传时把区域内的实体裁成五节自定义二进制（terrain / nets / objects / zones / areas）加一份 `meta.json` 清单；套用时按中心点与相对高程在目标地图上**造出普通游戏实体**，之后那张地图归游戏自己管。
 
 - 工坊数据面（公开只读）：<https://github.com/yuexian7/blueprinthub-workshop>
-- 读侧地址：`raw.githubusercontent.com` → GitHub Pages → jsDelivr（三镜像，内容寻址可互校）
+- 读侧地址：冷启动三镜像**并发探一次取最快**（Pages / raw / jsDelivr），之后失败按序降级；内容寻址的 blob 在任何镜像都能自校验
 
 ## 安装
 1. Paradox Mods 订阅（发布后）；或

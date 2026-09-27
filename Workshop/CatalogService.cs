@@ -113,7 +113,8 @@ namespace BlueprintHub.Workshop
         private async Task LoadAsync(int token)
         {
             _lastAttemptUtc = DateTime.UtcNow;
-            string indexJson = await WorkshopClient.GetTextAsync("catalog/index.json", CancellationToken.None)
+            // 首帧并发探三条镜像，谁快用谁（探路结果直接当 index 用掉，不多跑一次请求）
+            string indexJson = await WorkshopClient.GetIndexTextAsync("catalog/index.json", CancellationToken.None)
                 .ConfigureAwait(false);
             if (token != Volatile.Read(ref _reloadToken)) return;
             if (string.IsNullOrEmpty(indexJson))

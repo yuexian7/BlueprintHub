@@ -27,16 +27,22 @@ namespace BlueprintHub.Platform
         /// <summary>整个进程共用一个 client；超时收紧到秒级，别用默认 100 秒。</summary>
         private static readonly HttpClient s_http = CreateClient();
 
-        /// <summary>仓库根址（index.json 的 mirrors 覆盖它；这里是兜底默认）。</summary>
+        /// <summary>
+        /// 仓库根址（index.json 的 mirrors 会覆盖它；这里是「第一次拉 index」时的兜底顺序）。
+        /// 顺序按 2026-09-27 本机实测排：Pages 0.59s → jsDelivr 2.0s → raw 直接超时（000）。
+        /// raw 从大陆网络经常整段不通，把它放第一位 = 每次冷启动白等一个 12s 超时，
+        /// 而「网络上不能慢」是硬约束，所以它退到第二。
+        /// </summary>
         public static string[] Mirrors =
         {
-            "https://raw.githubusercontent.com/yuexian7/blueprinthub-workshop/main/",
             "https://yuexian7.github.io/blueprinthub-workshop/",
+            "https://raw.githubusercontent.com/yuexian7/blueprinthub-workshop/main/",
             "https://cdn.jsdelivr.net/gh/yuexian7/blueprinthub-workshop@main/",
         };
 
         private static int s_mirror;              // 当前胜出的镜像下标，探测后固定
         private static int s_DevLogged;           // 开发覆盖只播报一次，别刷屏
+        private static volatile bool s_probed;    // 首帧并发探路只做一次
         private static readonly object s_gate = new object();
 
         private static HttpClientHandler CreateHandler()
@@ -81,6 +87,73 @@ namespace BlueprintHub.Platform
 
         /// <summary>请求次数上限（含降级换镜像）：3 个镜像各试一次。</summary>
         public const int MAX_ATTEMPTS = 3;
+
+        /// <summary>
+        /// 冷启动探路：三条镜像并发各拉一次 index.json，谁先回来（且 200）就把 s_mirror 钉在谁身上。
+        /// 这是 CatalogKit.NextMirror 注释里承诺过的「探一次取最快」那一半的实现（另一半是失败轮转）。
+        /// 为什么要：2026-09-27 本机实测 Pages 0.59s / jsDelivr 2.0s / raw 超时不通 ——
+        /// 固定顺序必然有人每次多等好几秒，而「网络上不能慢」是硬约束。
+        /// 探路失败不报错：照常走轮转，只是慢一次。
+        /// </summary>
+        public static async Task<byte[]> ProbeMirrorsAsync(string relativeRepoPath, CancellationToken token)
+        {
+            if (s_probed) return null;
+            string[] mirrors;
+            lock (s_gate) mirrors = Mirrors;
+            if (mirrors.Length == 0) return null;
+
+            var tasks = new Task<byte[]>[mirrors.Length];
+            for (int i = 0; i < mirrors.Length; i++) tasks[i] = ProbeOneAsync(mirrors[i], relativeRepoPath, token);
+            byte[] winner = null;
+            int winIdx = -1;
+            var pending = new List<Task<byte[]>>(tasks);
+            while (pending.Count > 0)
+            {
+                Task<byte[]> done = await Task.WhenAny(pending).ConfigureAwait(false);
+                pending.Remove(done);
+                byte[] r = done.Status == TaskStatus.RanToCompletion ? done.Result : null;
+                if (r != null && r.Length > 0) { winner = r; winIdx = Array.IndexOf(tasks, done); break; }
+            }
+            if (winner == null) return null;               // 三条都不通：留给正式请求去降级
+            lock (s_gate) s_mirror = winIdx;
+            s_probed = true;
+            BlueprintHubMod.log.Info("镜像探路：" + mirrors[winIdx] + " 最快");
+            return winner;
+        }
+
+        /// <summary>
+        /// index.json 专用：没探路过就顺手把探路结果当返回值用掉（省一次请求），探过就走正常轮转。
+        /// </summary>
+        public static async Task<string> GetIndexTextAsync(string relativeRepoPath, CancellationToken token)
+        {
+            if (!s_probed)
+            {
+                byte[] probed = await ProbeMirrorsAsync(relativeRepoPath, token).ConfigureAwait(false);
+                if (probed != null && probed.Length > 0)
+                {
+                    try { return Encoding.UTF8.GetString(probed); } catch { }
+                }
+            }
+            return await GetTextAsync(relativeRepoPath, token).ConfigureAwait(false);
+        }
+
+        private static async Task<byte[]> ProbeOneAsync(string mirror, string rel, CancellationToken token)
+        {
+            try
+            {
+                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(token))
+                {
+                    cts.CancelAfter(TimeSpan.FromSeconds(6));         // 探路预算比正式请求短
+                    using (HttpResponseMessage resp = await s_http.GetAsync(CatalogKit.BuildUrl(mirror, rel), cts.Token)
+                        .ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        return await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+            catch { return null; }
+        }
 
         public static async Task<string> GetTextAsync(string relativeRepoPath, CancellationToken token)
         {

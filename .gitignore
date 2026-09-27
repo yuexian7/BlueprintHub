@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+.zcode/
+Library/
+research/
+template/
+*.coc
+out_api.txt
+UI/node_modules/
+UI/build/
+state/

@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<Configurations>Debug;Release</Configurations>
+		<LangVersion>9.0</LangVersion>
+		<PublishConfigurationPath>Properties\PublishConfiguration.xml</PublishConfigurationPath>
+	</PropertyGroup>
+
+	<!--官方工具链：CSII_TOOLPATH 是「用户级注册表」环境变量，必须显式按 User 作用域取（Playbook 步骤 0）-->
+	<Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.User'))\Mod.props" />
+	<Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.User'))\Mod.targets" />
+
+	<ItemGroup>
+		<!--本机无 net48 targeting pack；仅编译期参考程序集，PrivateAssets=all 不进产物-->
+		<PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+	</ItemGroup>
+
+	<!--
+	  v0.1.0 计划里唯一可能要用 Harmony 的地方：市辖区面板那颗上传按钮（需求 5）。
+	  先按零 Harmony 走（能只挂公开事件就不 hook，Playbook 步骤 1 的更优决策）；
+	  真到需要时按 Playbook 步骤 7 的 PackageDownload 2.3.3 覆盖法加，别直接 PackageReference 2.3.3（会让 ILHasher 挂死）。
+	-->
+
+	<Target Name="RunModPostProcessor" AfterTargets="AfterBuild" BeforeTargets="DeployWIP" Condition="'$(NeedBuild)'">
+		<Error Condition="!Exists('$(ModPostProcessorFullPath)')" Text="Post processor not found: $(ModPostProcessorFullPath)" />
+		<Message Text="Run post processor: $(ModPostProcessorArgs)" Importance="high" />
+		<Exec Command="$(ModPostProcessorArgs)" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" LogStandardErrorAsError="true" />
+	</Target>
+
+	<Target Name="RunModPublisher" AfterTargets="Publish">
+		<Error Condition="!Exists('$(ModPublisherPath)')" Text="Mod publisher not found: $(ModPublisherPath)" />
+		<Message Text="Run mod publisher: $(ModPublisherArgs)" Importance="high" />
+		<Exec Command="$(ModPublisherArgs)" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" LogStandardErrorAsError="true" />
+	</Target>
+
+	<!--UI/ 是 React 前端源码树（node_modules 与 src 里都可能有 .ts/.js；SDK 默认通配 **/*.cs 会把它编进产物）-->
+	<ItemGroup>
+		<Compile Remove="research\**" />
+		<Compile Remove="template\**" />
+		<Compile Remove="tests\**" />
+		<Compile Remove="tools\**" />
+		<Compile Remove="releases\**" />
+		<Compile Remove="UI\**" />
+		<None Remove="research\**" />
+		<None Remove="template\**" />
+		<None Remove="tests\**" />
+		<None Remove="tools\**" />
+		<None Remove="releases\**" />
+		<None Remove="UI\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Include="Game"><Private>false</Private></Reference>
+		<Reference Include="Colossal.Core"><Private>false</Private></Reference>
+		<Reference Include="Colossal.Mathematics"><Private>false</Private></Reference>
+		<Reference Include="Colossal.Collections"><Private>false</Private></Reference>
+		<Reference Include="Colossal.Logging"><Private>false</Private></Reference>
+		<Reference Include="Colossal.IO.AssetDatabase"><Private>false</Private></Reference>
+		<Reference Include="Colossal.Localization"><Private>false</Private></Reference>
+		<Reference Include="Colossal.UI"><Private>false</Private></Reference>
+		<Reference Include="Colossal.UI.Binding"><Private>false</Private></Reference>
+		<Reference Include="UnityEngine.CoreModule"><Private>false</Private></Reference>
+		<Reference Include="UnityEngine.UIElementsModule"><Private>false</Private></Reference>
+		<Reference Include="Unity.InputSystem"><Private>false</Private></Reference>
+		<Reference Include="Unity.Burst"><Private>false</Private></Reference>
+		<Reference Include="Unity.Collections"><Private>false</Private></Reference>
+		<Reference Include="Unity.Entities"><Private>false</Private></Reference>
+		<Reference Include="Unity.Mathematics"><Private>false</Private></Reference>
+		<Reference Include="System.Net.Http"><Private>false</Private></Reference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<Reference Update="System"><Private>false</Private></Reference>
+		<Reference Update="System.Core"><Private>false</Private></Reference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="$(ModPropsFile)" Link="Properties\Mod.props" />
+		<None Include="$(ModTargetsFile)" Link="Properties\Mod.targets" />
+	</ItemGroup>
+
+</Project>

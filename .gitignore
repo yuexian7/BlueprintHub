@@ -10,5 +10,11 @@ template/
 *.coc
 out_api.txt
 UI/node_modules/
-UI/build/
+UI/dist/
+UI/package-lock.json
+tests/*/bin/
+tests/*/obj/
+tests/*/*.dll
+tests/*/*.json
+Tools/publish/
 state/

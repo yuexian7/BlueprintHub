@@ -15,6 +15,9 @@ namespace BlueprintHub.Platform
     {
         public const string MOD_DIR = "BlueprintHub";
 
+        /// <summary>封面的 coui:// 虚拟主机名（全小写，与 Cohtml 的 host 注册口径一致）。</summary>
+        public const string CoverHost = "blueprinthubcovers";
+
         public static string Root { get { return Path.Combine(Application.persistentDataPath, "ModsData", MOD_DIR); } }
 
         /// <summary>下载下来的蓝图 meta.json 与已保存蓝图（需求 5 的「保存的蓝图」）。</summary>
@@ -23,13 +26,13 @@ namespace BlueprintHub.Platform
         /// <summary>内容寻址的分节缓存 blob/&lt;sha16&gt;.bin（不可变 → 永久命中）。</summary>
         public static string BlobCacheDir { get { return Path.Combine(Root, "cache"); } }
 
-        /// <summary玩家本地计数（点赞/下载只加一次）与草稿箱。</summary>
+        /// <summary>预览图临时目录：注册成 Cohtml host location 给面板用（照 Road Builder 的 thumbnails）。</summary>
+        public static string TempDir { get { return Path.Combine(Path.GetTempPath(), "BlueprintHub"); } }
+
+        /// <summary>玩家本地计数（点赞/下载只加一次）与草稿箱。</summary>
         public static string StateDir { get { return Path.Combine(Root, "state"); } }
 
         public static string DraftsDir { get { return Path.Combine(Root, "drafts"); } }
-
-        /// <summary>预览图临时目录：注册成 Cohtml host location 给面板用（照 Road Builder 的 thumbnails）。</summary>
-        public static string TempDir { get { return Path.Combine(Path.GetTempPath(), "BlueprintHub"); } }
 
         public static void EnsureDirs()
         {
@@ -42,11 +45,16 @@ namespace BlueprintHub.Platform
             catch (Exception ex) { BlueprintHubMod.log.Warn("mkdir " + dir + " failed: " + ex.GetType().Name); }
         }
 
-        /// <summary>退出时把内存态计数写盘；M1 起这里同时负责 stats/votes.json 的原子替换（写 tmp 再 rename）。</summary>
+        /// <summary>退出 / 落盘入口：把内存态计数写盘（votes.json，原子替换见 WriteText）。</summary>
         public static void Flush(string reason)
         {
             EnsureDirs();
-            // M1 实现：Votes.Save(Path.Combine(StateDir, "votes.json"))
+            try
+            {
+                Workshop.CatalogService cs = Workshop.CatalogService.Instance;
+                if (cs != null && cs.VoteBook != null) cs.VoteBook.SaveIfDirty();
+            }
+            catch (Exception ex) { BlueprintHubMod.log.Warn("Flush(" + reason + ") votes: " + ex.GetType().Name); }
         }
 
         public static string ReadText(string file)

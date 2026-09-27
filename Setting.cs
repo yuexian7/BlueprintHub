@@ -34,8 +34,13 @@ namespace BlueprintHub
         /// <summary>面板透明度热路径镜像（UI 每帧读它，不走属性链 —— Playbook 硬规则 15）。</summary>
         public static volatile float s_PanelOpacity = 0.5f;
 
+        /// <summary>
+        /// 入口按钮上显示的那个键名（「蓝图工坊  K」这种）。没设键就是空串，前端就不画那一格。
+        /// 只由 Mod 入口在绑定注册/改键后写一次，不在热路径读。
+        /// </summary>
+        public static string BoundKeyText = string.Empty;
+
         private float m_PanelOpacity = 0.5f;
-        private bool m_ConfirmQuitWhileDownloading = true;
 
 #nullable enable
         private ProxyBinding m_TogglePanel;
@@ -47,7 +52,7 @@ namespace BlueprintHub
         }
 
         // ---------- 模组 ----------
-        [SettingsUISection(kTabMod, kGroupPanel)]
+        /// <summary>真值属性：选项页上出现的只有下面那根滑条（一个设置出现两行是常见的抄错误）。</summary>
         public float PanelOpacity
         {
             get { return m_PanelOpacity; }
@@ -61,19 +66,16 @@ namespace BlueprintHub
         }
 
         [SettingsUISection(kTabMod, kGroupPanel)]
-        [SettingsUISlider(min = 0.2f, max = 1f, step = 0.05f, unit = "%", scaleDragVolume = true)]
+        // scalarMultiplier=100：内部存 0.2~1，显示 20%~100%（字段名 FACT：research/api-SettingsUI.txt:220）
+        [SettingsUISlider(min = 0.2f, max = 1f, step = 0.05f, unit = "%", scalarMultiplier = 100f, scaleDragVolume = true)]
         public float PanelOpacitySlider
         {
             get { return PanelOpacity; }
             set { PanelOpacity = value; }
         }
 
-        [SettingsUISection(kTabMod, kGroupApply)]
-        public bool ConfirmQuitWhileDownloading
-        {
-            get { return m_ConfirmQuitWhileDownloading; }
-            set { m_ConfirmQuitWhileDownloading = value; }
-        }
+        // 需求 7 目前只点名了两件事：透明度 + 快捷键。
+        // 「下载中退出要二次确认」那类设置在 M4（真的会边下边套）之前不放上来 —— 摆了不做用的设置比没有更糟。
 
         // ---------- 快捷键（需求 7：默认空，玩家自己设）----------
         [SettingsUISection(kTabMod, kGroupKeys)]
@@ -145,7 +147,7 @@ namespace BlueprintHub
         {
             m_PanelOpacity = 0.5f;              // 需求 1：默认 50%
             s_PanelOpacity = 0.5f;
-            m_ConfirmQuitWhileDownloading = true;
+            // 目前没有需要重置的二次确认类设置（见上面 M4 那条注释）
         }
 
         private static float Clamp01(float v)

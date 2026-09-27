@@ -25,6 +25,21 @@
 		<Error Condition="!Exists('$(ModPostProcessorFullPath)')" Text="Post processor not found: $(ModPostProcessorFullPath)" />
 		<Message Text="Run post processor: $(ModPostProcessorArgs)" Importance="high" />
 		<Exec Command="$(ModPostProcessorArgs)" EnvironmentVariables="DOTNET_ROLL_FORWARD=Major" LogStandardErrorAsError="true" />
+
+		<!--
+		  前端产物必须与 dll 同目录：FACT ModManager.InitializeUIModules 用
+		  AssetDatabase 找 UIModuleAsset，然后 AddHostLocation("ui-mods", 该资产所在目录)。
+		  BusLineAutoStops 已验证的形态 = mod.json + <Id>.mjs + <Id>.dll 三件套并排。
+		  写在本 Target 体内（AfterBuild 之后、DeployWIP 之前）而不是另开一个 Target：
+		  MSBuild 不会因为 AfterTargets/BeforeTargets 就保证两个同级 Target 的先后顺序（Playbook §10 的坑）。
+		-->
+		<Error Condition="!Exists('$(MSBuildProjectDirectory)\UI\mod.json')" Text="Missing UI\mod.json (UI 模块清单)" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\UI\mod.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
+		<Copy Condition="Exists('$(MSBuildProjectDirectory)\UI\dist\BlueprintHub.mjs')"
+		      SourceFiles="$(MSBuildProjectDirectory)\UI\dist\BlueprintHub.mjs"
+		      DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
+		<Warning Condition="!Exists('$(MSBuildProjectDirectory)\UI\dist\BlueprintHub.mjs')"
+		         Text="UI\dist\BlueprintHub.mjs 不存在：先跑 npm --prefix UI run build，否则游戏里没有面板。" />
 	</Target>
 
 	<Target Name="RunModPublisher" AfterTargets="Publish">
@@ -59,6 +74,8 @@
 		<Reference Include="Colossal.Localization"><Private>false</Private></Reference>
 		<Reference Include="Colossal.UI"><Private>false</Private></Reference>
 		<Reference Include="Colossal.UI.Binding"><Private>false</Private></Reference>
+		<!--IdentityKit 读 PlatformManager.instance.userSpecificPath 做本机去重键（FACT：api-PlatformManager.txt:200）-->
+		<Reference Include="Colossal.PSI.Common"><Private>false</Private></Reference>
 		<Reference Include="UnityEngine.CoreModule"><Private>false</Private></Reference>
 		<Reference Include="UnityEngine.UIElementsModule"><Private>false</Private></Reference>
 		<Reference Include="Unity.InputSystem"><Private>false</Private></Reference>

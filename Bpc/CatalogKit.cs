@@ -98,10 +98,11 @@ namespace BlueprintHub.Bpc
             return "1 区块 ≈ " + TILE_AREA_M2.ToString("N0", CultureInfo.GetCultureInfo("zh-Hans")) + " ㎡";
         }
 
-        /// <summary>面积档筛选：all 放行一切；未知档位当 all（宁可多显示，不要把列表筛空）。</summary>
+        /// <summary>面积档筛选：all 放行一切；**未知档位也当 all**（宁可多显示，也不要把列表筛成空白 —— 面板只会传四个已知值，真出现别的值说明前后端不同源，那更不该让玩家看到空列表）。</summary>
         public static bool AreaClassMatches(string itemAreaClass, string filter)
         {
             if (string.IsNullOrEmpty(filter) || filter == "all") return true;
+            if (filter != "small" && filter != "medium" && filter != "large") return true;
             return itemAreaClass == filter;
         }
 
@@ -344,7 +345,9 @@ namespace BlueprintHub.Bpc
         public long HotWeekly;
         public long HotTotal;
         public string UpdatedAt;      // ISO8601
-        public string CoverUrl;
+        public string CoverUrl;       // 面板用的 coui:// 地址（下载完才有值）
+        public string CoverRepoPath;  // 仓库相对路径 blueprints/&lt;author&gt;/&lt;bpId&gt;/&lt;file&gt;
+        public long Tiles;            // 面积折算成区块数（1 区块 = 388,129 ㎡）
         public int AssetCount;
         public string Description;
     }

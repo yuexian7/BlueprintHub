@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<Nullable>disable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<AssemblyName>t3</AssemblyName>
+		<RootNamespace>BlueprintHub.Tests</RootNamespace>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- 同一份源码两边编，不写桩不复制（Playbook 步骤 4 / 硬规则 14）：
+		     Bpc/ 下这三个文件一个游戏类型都不许出现，所以能直接 net8 编起来跑断言。 -->
+		<Compile Include="..\..\Bpc\JsonKit.cs" />
+		<Compile Include="..\..\Bpc\CatalogKit.cs" />
+		<Compile Include="..\..\Bpc\BrowseKit.cs" />
+		<Compile Include="..\..\Bpc\BlueprintId.cs" />
+	</ItemGroup>
+</Project>

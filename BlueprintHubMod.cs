@@ -5,6 +5,7 @@ using Game;
 using Game.Input;
 using Game.Modding;
 using Game.SceneFlow;
+using BlueprintHub.Systems.UI;
 using Unity.Entities;
 using UnityEngine;
 using UnityEngine.InputSystem;      // InputActionPhase 在这里（ProxyAction / ProxyBinding 在 Game.Input）
@@ -32,6 +33,8 @@ namespace BlueprintHub
         private BlueprintHubSetting m_Setting;
         private ProxyAction m_TogglePanelAction;
         private bool m_QuitHooked;
+        private bool m_OptionsRegistered;
+        private bool m_HasUi;
         private static string s_BoundPath;
 
         public void OnLoad(UpdateSystem updateSystem)
@@ -42,18 +45,20 @@ namespace BlueprintHub
             m_Setting = new BlueprintHubSetting(this);
             BlueprintHubSetting.Instance = m_Setting;
 
-            // 需求 7 的三块设置（透明度 / 快捷键 / 关于）先注册进选项页。
-            // 注意：RegisterInOptionsUI 在世界未就绪时会**静默返回 false**，先判世界。
+            // 词条必须先注册：没有它，自动生成的设置页只能显示英文属性名（需求 7 那一页要中文）
             try
             {
-                if (World.DefaultGameObjectInjectionWorld != null) m_Setting.RegisterInOptionsUI();
-                else log.Warn("World not ready: options page not registered (M1 里要补重试)。");
+                string[] locales = LocaleTable.Locales;
+                for (int i = 0; i < locales.Length; i++)
+                    GameManager.instance.localizationManager.AddSource(locales[i], new LocaleSource(m_Setting, locales[i]));
+                log.Info("选项页词条已注册：" + locales.Length + " 个语言");
             }
-            catch (Exception ex) { log.Warn("RegisterInOptionsUI: " + ex.GetType().Name + " " + ex.Message); }
+            catch (Exception ex) { log.Warn("Locale register failed: " + ex.GetType().Name); }
 
-            // 硬约束顺序：先读盘，再绑键（Playbook §3.2）
+            // 硬约束顺序：先读盘，再绑键（Playbook §3.2 —— 反序会让玩家改的键被特性默认值顶掉）
             try { AssetDatabase.global.LoadSettings(MOD_NAME, m_Setting, new BlueprintHubSetting(this)); }
             catch (Exception ex) { log.Warn("LoadSettings failed, using defaults: " + ex.GetType().Name); }
+            BlueprintHubSetting.s_PanelOpacity = m_Setting.PanelOpacity;
 
             try
             {
@@ -68,6 +73,7 @@ namespace BlueprintHub
                         m_TogglePanelAction.shouldBeEnabled = true;
                         m_TogglePanelAction.onInteraction += OnTogglePanelInteraction;
                         s_BoundPath = bound;
+                        BlueprintHubSetting.BoundKeyText = KeyDisplay(bound);
                     }
                     else
                     {
@@ -79,11 +85,57 @@ namespace BlueprintHub
             }
             catch (Exception ex) { log.Warn("Keybinding register: " + ex.GetType().Name + " " + ex.Message); }
 
+            // 需求 7 的三块设置（透明度 / 快捷键 / 关于）注册进选项页。
+            // FACT：Game.Settings.Setting.RegisterInOptionsUI(...) 只在 DefaultGameObjectInjectionWorld
+            //   为 null 时 return false，而它对模组是 void（internal 返回值拿不到）—— 失败不打招呼。
+            //   判据只能自己拿：世界没就绪就留到 UISystem.OnCreate（那时世界必然在）再补一次。
+            EnsureOptionsRegistered("OnLoad");
+
+            // 面板本体 + 绑定桥。注册阶段：FACT 游戏自己的 *UISystem 全在 SystemUpdatePhase.UIUpdate
+            // （Game/Common/SystemOrder.cs:898-991）。
+            try
+            {
+                if (World.DefaultGameObjectInjectionWorld != null)
+                {
+                    updateSystem.UpdateAt<BlueprintHubUISystem>(SystemUpdatePhase.UIUpdate);
+                    World.DefaultGameObjectInjectionWorld.GetOrCreateSystemManaged<BlueprintHubUISystem>();
+                    m_HasUi = true;
+                }
+                else log.Warn("世界未就绪：UI 系统未注册，面板不会出现。");
+            }
+            catch (Exception ex) { log.Error("UI 系统注册失败：" + ex.GetType().Name + " " + ex.Message); }
+
             HookQuit();
 
-            // M0 到此为止：M1 会在这里挂 UISystem（面板）+ 数据面客户端 + 存档内嵌组件。
             log.Info("BlueprintHub v" + kVersion + " 载入完成：透明度=" +
                 ((int)(BlueprintHubSetting.s_PanelOpacity * 100f)) + "%，面板快捷键=" + (s_BoundPath ?? "无"));
+        }
+
+        /// <summary>&lt;Keyboard&gt;/leftShift 这种路径换成能塞进按钮的短名。</summary>
+        internal static string KeyDisplay(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return string.Empty;
+            int slash = path.LastIndexOf('/');
+            string key = slash >= 0 && slash + 1 < path.Length ? path.Substring(slash + 1) : path;
+            key = key.Replace("<", "").Replace(">", "");
+            switch (key.ToLowerInvariant())
+            {
+                case "": return string.Empty;
+                case "space": return "空格";
+                case "enter": case "return": return "Enter";
+                case "escape": return "Esc";
+                case "leftshift": return "LShift";
+                case "rightshift": return "RShift";
+                case "leftctrl": case "rightctrl": return key.StartsWith("left") ? "LCtrl" : "RCtrl";
+                case "leftalt": case "rightalt": return key.StartsWith("left") ? "LAlt" : "RAlt";
+                case "tab": return "Tab";
+                case "backspace": return "Backspace";
+                case "leftbutton": return "鼠标左键";
+                case "rightbutton": return "鼠标右键";
+                case "middlebutton": return "鼠标中键";
+            }
+            if (key.Length == 1) return key.ToUpperInvariant();
+            return char.ToUpperInvariant(key[0]) + key.Substring(1);
         }
 
         /// <summary>验证只认 ProxyAction.bindings（真值），属性里的 path 只当参考（Playbook §3.2 的 ProxyBinding 教训）。</summary>
@@ -108,11 +160,34 @@ namespace BlueprintHub
             TogglePanel();
         }
 
+        /// <summary>选项页注册只做一次；世界未就绪时留到下一次（UISystem.OnCreate 会再调一遍）。</summary>
+        internal void EnsureOptionsRegistered(string from)
+        {
+            if (m_OptionsRegistered) return;
+            if (m_Setting == null) return;
+            if (World.DefaultGameObjectInjectionWorld == null)
+            {
+                log.Warn("世界未就绪，选项页留到 " + from + " 之后再补注册。");
+                return;
+            }
+            try
+            {
+                m_Setting.RegisterInOptionsUI();
+                m_OptionsRegistered = true;
+                log.Info("选项页已注册（" + from + "）。");
+            }
+            catch (Exception ex) { log.Warn("RegisterInOptionsUI: " + ex.GetType().Name + " " + ex.Message); }
+        }
+
         public static void TogglePanel()
         {
-            PanelVisible = !PanelVisible;
-            log.Info("PanelVisible -> " + PanelVisible);
-            // M1：这里通知 UI 系统刷新（CreateBinding 的 .Value 赋值）
+            if (Instance != null && Instance.m_HasUi)
+            {
+                BlueprintHubUISystem.Toggle();
+                return;
+            }
+            PanelVisible = !PanelVisible;      // UI 系统没起来（理论上不该发生）：至少让状态自洽
+            log.Warn("UI 系统未注册，快捷键只翻转了内部开关。");
         }
 
         private void HookQuit()
@@ -161,8 +236,10 @@ namespace BlueprintHub
             }
             catch { }
             Flush("dispose");
-            try { if (m_Setting != null) m_Setting.UnregisterInOptionsUI(); }
+            try { if (m_Setting != null && m_OptionsRegistered) m_Setting.UnregisterInOptionsUI(); }
             catch (Exception ex) { log.Warn("UnregisterInOptionsUI: " + ex.GetType().Name); }
+            m_OptionsRegistered = false;
+            m_HasUi = false;
             BlueprintHubSetting.Instance = null;
             Instance = null;
         }

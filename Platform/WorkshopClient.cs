@@ -36,6 +36,7 @@ namespace BlueprintHub.Platform
         };
 
         private static int s_mirror;              // 当前胜出的镜像下标，探测后固定
+        private static int s_DevLogged;           // 开发覆盖只播报一次，别刷屏
         private static readonly object s_gate = new object();
 
         private static HttpClientHandler CreateHandler()
@@ -57,6 +58,26 @@ namespace BlueprintHub.Platform
             c.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
             return c;
         }
+
+        /// <summary>
+        /// index.json 的 mirrors 到手后覆盖默认址（FACT：仓库里那份的三条顺序 = raw → Pages → jsDelivr，
+        /// 中国大陆 jsDelivr 有 DNS 污染史所以只当兜底）。空列表忽略，别让面板从此请求不到东西。
+        /// </summary>
+        public static void ApplyMirrors(System.Collections.Generic.IEnumerable<string> urls)
+        {
+            if (urls == null) return;
+            var list = new System.Collections.Generic.List<string>();
+            foreach (string u in urls) if (!string.IsNullOrEmpty(u)) list.Add(u);
+            if (list.Count == 0) return;
+            lock (s_gate)
+            {
+                Mirrors = list.ToArray();
+                s_mirror = 0;
+            }
+        }
+
+        public static int MirrorCount { get { lock (s_gate) return Mirrors.Length; } }
+        public static int ActiveMirror { get { lock (s_gate) return s_mirror; } }
 
         /// <summary>请求次数上限（含降级换镜像）：3 个镜像各试一次。</summary>
         public const int MAX_ATTEMPTS = 3;
@@ -82,13 +103,21 @@ namespace BlueprintHub.Platform
             string rel = (relativeRepoPath ?? string.Empty).Replace('\\', '/').TrimStart('/');
             if (rel.Length == 0) return null;
 
-            int start;
-            lock (s_gate) { start = s_mirror; }
+            // 开发覆盖优先（玩家机器上没这个目录，见 DevCatalogDir 注释）
+            string dev = DevFile(rel);
+            if (dev != null) return DevRead(dev, rel);
 
-            for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++)
+            string[] mirrors;
+            int start;
+            lock (s_gate) { start = s_mirror; mirrors = Mirrors; }
+            int attempts = mirrors.Length < MAX_ATTEMPTS ? mirrors.Length : MAX_ATTEMPTS;
+            if (attempts <= 0) attempts = 1;
+            int lastMiss = 0;
+
+            for (int attempt = 0; attempt < attempts; attempt++)
             {
-                int idx = (start + attempt) % Mirrors.Length;
-                string url = CatalogKit.BuildUrl(Mirrors[idx], rel);
+                int idx = (start + attempt) % mirrors.Length;
+                string url = CatalogKit.BuildUrl(mirrors[idx], rel);
                 try
                 {
                     using (var cts = CancellationTokenSource.CreateLinkedTokenSource(token))
@@ -103,12 +132,22 @@ namespace BlueprintHub.Platform
                                 lock (s_gate) { s_mirror = idx; }              // 记住这次赢的镜像
                                 return bytes;
                             }
-                            if (CatalogKit.IsPermanentStatus(code))
+                            if (code == 404)
+                            {
+                                // 404 要逐镜像问一遍：Pages 可能还没部署完、jsDelivr 可能命中旧缓存，
+                                // 三条都 404 才算真没有（返回 null，调用方按「永久」处理，不会自动重试）。
+                                lastMiss = 404;
+                                BlueprintHubMod.log.Warn("404 镜像#" + idx + " " + rel);
+                            }
+                            else if (CatalogKit.IsPermanentStatus(code))
                             {
                                 BlueprintHubMod.log.Warn("永久拒绝 " + code + " " + rel);
-                                return null;                                    // 404/403 换镜像也没用（Pages 未部署时 404 是例外）
+                                return null;                            // 403/401/400 换镜像没意义，一次都不许多试
                             }
-                            BlueprintHubMod.log.Warn("瞬时失败 " + code + " 镜像#" + idx + " " + rel);
+                            else
+                            {
+                                BlueprintHubMod.log.Warn("瞬时失败 " + code + " 镜像#" + idx + " " + rel);
+                            }
                         }
                     }
                 }
@@ -121,11 +160,13 @@ namespace BlueprintHub.Platform
                 {
                     BlueprintHubMod.log.Warn("请求异常 镜像#" + idx + " " + rel + " " + ex.GetType().Name);
                 }
-                if (attempt + 1 < MAX_ATTEMPTS)
+                // 404 是立刻回来的，不必退避；瞬时失败才需要给镜像喘息
+                if (attempt + 1 < attempts && lastMiss != 404)
                 {
                     await Task.Delay(CatalogKit.BackoffMs(attempt + 1), token).ConfigureAwait(false);
                 }
             }
+            if (lastMiss == 404) BlueprintHubMod.log.Info("三条镜像都 404：" + rel);
             return null;
         }
 
@@ -144,7 +185,7 @@ namespace BlueprintHub.Platform
                 try { File.Delete(cache); } catch { }                          // 脏缓存：删掉重下
             }
 
-            byte[] raw = await GetBytesAsync(CatalogKit2.BlobPath(sha16), token).ConfigureAwait(false);
+            byte[] raw = await GetBytesAsync(BlueprintId.BlobPath(sha16), token).ConfigureAwait(false);
             if (raw == null) return null;
             string actual = ShortHashOf(raw);
             if (actual != sha16)
@@ -176,6 +217,39 @@ namespace BlueprintHub.Platform
             catch { return string.Empty; }
         }
 
+        /// <summary>
+        /// 开发覆盖：本地存在 ModsData\BlueprintHub\dev-catalog\&lt;仓库相对路径&gt; 时优先读它，完全不碰网络。
+        /// 只影响开发者自己（玩家机器上没这个目录）。用途：库里还没有蓝图时也能测卡片渲染、分页、封面、搜索与排序。
+        /// 生成工具：tools/seed-dev-catalog.mjs（同一步也用来复现「镜像返回坏数据」这类场景）。
+        /// </summary>
+        public static string DevCatalogDir { get { return Path.Combine(LocalLibrary.Root, "dev-catalog"); } }
+
+        private static string DevFile(string rel)
+        {
+            try
+            {
+                string root = Path.GetFullPath(DevCatalogDir);
+                if (!Directory.Exists(root)) return null;
+                string cand = Path.GetFullPath(Path.Combine(root, rel));
+                // 只允许落在 dev-catalog 里面：拼出来的绝对路径必须在根下（挡 .. 跳出）
+                if (!cand.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return null;
+                return File.Exists(cand) ? cand : null;
+            }
+            catch { return null; }
+        }
+
+        private static byte[] DevRead(string file, string rel)
+        {
+            if (Interlocked.CompareExchange(ref s_DevLogged, 1, 0) == 0)
+                BlueprintHubMod.log.Warn("开发覆盖生效：读本地 dev-catalog，不访问网络（" + DevCatalogDir + "）");
+            try { return File.ReadAllBytes(file); }
+            catch (Exception ex)
+            {
+                BlueprintHubMod.log.Warn("dev-catalog " + rel + ": " + ex.GetType().Name);
+                return null;
+            }
+        }
+
         public static string ShortHashOf(byte[] data)
         {
             using (var sha = SHA256.Create())
@@ -188,9 +262,5 @@ namespace BlueprintHub.Platform
         }
     }
 
-    /// <summary>小别名：BlueprintId 在 Bpc 命名空间，这里避免与 Platform 下的类名撞车时写全名。</summary>
-    internal static class CatalogKit2
-    {
-        public static string BlobPath(string sha16) { return BlueprintId.BlobPath(sha16); }
-    }
+
 }

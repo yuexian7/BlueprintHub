@@ -350,6 +350,7 @@ namespace BlueprintHub.Systems.UI
             w.Bool("used", used);
             w.Num("areaM2", it.AreaM2);
             w.Str("areaText", BrowseKit.AreaTextZh(it.AreaM2, CatalogKit.TILE_AREA_M2));
+            w.Str("areaFull", BrowseKit.AreaTextFull(it.AreaM2, CatalogKit.TILE_AREA_M2));
             w.Str("areaClass", it.AreaClass);
             w.Str("areaClassLabel", CatalogKit.AreaClassZh(it.AreaClass));
             w.Str("updated", BrowseKit.RelativeTimeZh(it.UpdatedAt, now));

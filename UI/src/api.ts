@@ -65,6 +65,7 @@ export interface ItemCard {
   used: boolean;
   areaM2: number;
   areaText: string;
+  areaFull: string;      // tooltip / 详情用完整值
   areaClass: string;
   areaClassLabel: string;
   updated: string;

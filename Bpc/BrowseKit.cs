@@ -252,13 +252,33 @@ namespace BlueprintHub.Bpc
         }
 
         // ---------- 展示文案（中文先内嵌，M5 换词条）----------
-        /// <summary>「2 区块 · 776,258 ㎡」——区块数取整到 0.01，避免 0.98 区块这种刺眼写法。</summary>
+        /// <summary>完整面积（详情页 / tooltip 用）：「8 区块 · 3,105,032 ㎡」。</summary>
+        public static string AreaTextFull(long areaM2, double tileAreaM2)
+        {
+            return TilesLabel(areaM2, tileAreaM2) + " · " + areaM2.ToString("N0", CultureInfo.InvariantCulture) + " ㎡";
+        }
+
+        /// <summary>
+        /// 卡片脚注的紧凑形态：「8 区块 · 310.5万㎡」。
+        /// 为什么不用带千分位的完整值：卡片只有 176rem 宽，脚注里还要塞点赞与套用两个可点计数，
+        /// 实拍会被截成「3,105,03…」（预览台抓到的）。万㎡ 是中文玩家本来就熟的单位。
+        /// </summary>
         public static string AreaTextZh(long areaM2, double tileAreaM2)
         {
-            double tiles = tileAreaM2 > 0 ? areaM2 / tileAreaM2 : 0d;
-            string t = tiles >= 100d ? tiles.ToString("F0", CultureInfo.InvariantCulture)
-                : tiles.ToString("0.##", CultureInfo.InvariantCulture);
-            return t + " 区块 · " + areaM2.ToString("N0", CultureInfo.InvariantCulture) + " ㎡";
+            string wan = areaM2 >= 10000L
+                ? (areaM2 / 10000d).ToString(areaM2 % 10000L == 0L ? "0" : "0.#", CultureInfo.InvariantCulture) + "万㎡"
+                : areaM2.ToString("N0", CultureInfo.InvariantCulture) + "㎡";
+            return TilesLabel(areaM2, tileAreaM2) + " · " + wan;
+        }
+
+        /// <summary>区块数标签：整块不写小数，非整块写一位（「0.5 区块」）。</summary>
+        public static string TilesLabel(long areaM2, double tileAreaM2)
+        {
+            double t = tileAreaM2 > 0 ? areaM2 / tileAreaM2 : 0d;
+            string v = t >= 100d ? t.ToString("F0", CultureInfo.InvariantCulture)
+                : Math.Abs(t - Math.Round(t)) < 0.05d ? ((long)Math.Round(t)).ToString(CultureInfo.InvariantCulture)
+                : t.ToString("0.#", CultureInfo.InvariantCulture);
+            return v + " 区块";
         }
 
         /// <summary>相对时间：列表脚注放不下长日期。</summary>

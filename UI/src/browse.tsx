@@ -115,7 +115,7 @@ export const Card = ({ it }: { it: ItemCard }) => {
         <img src={cover} alt="" />
         <span className="bph-catbar" style={{ background: catColor }} />
         <div className="bph-strip">
-          <span className="bph-area">{it.areaText}</span>
+          <span className="bph-area" title={it.areaFull || it.areaText}>{it.areaText}</span>
           <div className={"bph-stat" + (it.liked ? " bph-stat-on" : "")}
             title={it.liked ? "已经点过一次：每张蓝图只能加一次" : "点赞"}
             onClick={(e) => { e.stopPropagation(); cmd("like", it.id); }}>

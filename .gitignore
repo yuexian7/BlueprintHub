@@ -16,5 +16,6 @@ tests/*/bin/
 tests/*/obj/
 tests/*/*.dll
 tests/*/*.json
+tests/*.png
 Tools/publish/
 state/

@@ -445,9 +445,13 @@ namespace BlueprintHub.Tests
 
         private static void DisplayText()
         {
-            Check(BrowseKit.AreaTextZh(388129L, CatalogKit.TILE_AREA_M2) == "1 区块 · 388,129 ㎡", "面积文案：整块");
-            Check(BrowseKit.AreaTextZh(194065L, CatalogKit.TILE_AREA_M2) == "0.5 区块 · 194,065 ㎡", "面积文案：半块写 0.5");
-            Check(BrowseKit.AreaTextZh(7762580L, CatalogKit.TILE_AREA_M2) == "20 区块 · 7,762,580 ㎡", "面积文案：整数不带小数点");
+            Check(BrowseKit.AreaTextZh(388129L, CatalogKit.TILE_AREA_M2) == "1 区块 · 38.8万㎡", "面积文案：脚注用万㎡（卡片塞不下千分位）");
+            Check(BrowseKit.AreaTextZh(194065L, CatalogKit.TILE_AREA_M2) == "0.5 区块 · 19.4万㎡", "面积文案：半块写 0.5");
+            Check(BrowseKit.AreaTextFull(194065L, CatalogKit.TILE_AREA_M2) == "0.5 区块 · 194,065 ㎡", "面积全称：tooltip 里给精确值");
+            Check(BrowseKit.AreaTextZh(3105032L, CatalogKit.TILE_AREA_M2) == "8 区块 · 310.5万㎡", "面积文案：8 块写 310.5万㎡");
+            Check(BrowseKit.AreaTextZh(4000L, CatalogKit.TILE_AREA_M2) == "0 区块 · 4,000㎡", "面积文案：不足 1 万㎡ 直接写㎡");
+            Check(BrowseKit.AreaTextZh(7762580L, CatalogKit.TILE_AREA_M2) == "20 区块 · 776.3万㎡", "面积文案：整块不带小数、万㎡ 保留一位");
+            Check(BrowseKit.AreaTextFull(7762580L, CatalogKit.TILE_AREA_M2) == "20 区块 · 7,762,580 ㎡", "面积全称：千分位不丢");
             Check(CatalogKit.TileHintZh().Contains("388,129"), "菜单条：1 区块提示");
 
             DateTime now = new DateTime(2026, 9, 27, 12, 0, 0, DateTimeKind.Utc);

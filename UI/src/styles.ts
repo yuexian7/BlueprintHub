@@ -10,7 +10,7 @@ import { C } from "./icons";
 
 export const PANEL_CSS = `
 .bph-root{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:900;}
-.bph-panel{position:absolute;left:50%;top:50%;width:1180rem;height:764rem;margin-left:-590rem;margin-top:-382rem;
+.bph-panel{position:absolute;left:50%;top:50%;width:1240rem;height:768rem;margin-left:-620rem;margin-top:-384rem;
   border-radius:14rem;border:1rem solid ${C.line};box-shadow:0 18rem 60rem rgba(0,0,0,0.62);
   display:flex;flex-direction:column;pointer-events:auto;overflow:hidden;}
 .bph-body{flex:1 1 auto;display:flex;flex-direction:row;min-height:0;}
@@ -48,7 +48,7 @@ export const PANEL_CSS = `
 .bph-cat-n{font-size:11rem;color:${C.dim};margin-left:auto;padding-left:6rem;}
 
 /* ---------- 右区 ---------- */
-.bph-main{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;padding:0 14rem;}
+.bph-main{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;padding:0 16rem;overflow:hidden;}
 .bph-menu{height:52rem;flex:0 0 52rem;display:flex;flex-direction:row;align-items:center;}
 .bph-tile{font-size:12rem;color:${C.dim};white-space:nowrap;}
 .bph-goto{font-size:12rem;color:${C.dim};margin-left:8rem;white-space:nowrap;}
@@ -71,22 +71,23 @@ export const PANEL_CSS = `
 
 /* ---------- 卡片网格：5 列 × 3 行（需求 3）---------- */
 .bph-grid{flex:1 1 auto;display:flex;flex-direction:row;flex-wrap:wrap;align-content:flex-start;
-  margin:2rem -6rem 0 -6rem;min-height:0;}
-.bph-card{width:188rem;margin:0 6rem 12rem 6rem;border-radius:10rem;overflow:hidden;cursor:pointer;
+  margin:4rem -6rem 0 -6rem;min-height:0;overflow:hidden;}
+.bph-card{width:180rem;margin:0 6rem 10rem 6rem;border-radius:10rem;overflow:hidden;cursor:pointer;
   background:${C.panelHi};border:1rem solid ${C.line};}
 .bph-card:hover{border-color:${C.accent};}
-.bph-cover{position:relative;width:100%;height:112rem;overflow:hidden;background:#0d151f;}
+.bph-cover{position:relative;width:100%;height:104rem;overflow:hidden;background:#0d151f;}
 .bph-cover img{width:100%;height:100%;object-fit:cover;display:block;}
 .bph-catbar{position:absolute;left:0;top:0;width:4rem;height:100%;opacity:0.9;}
-.bph-strip{position:absolute;left:0;right:0;bottom:0;height:28rem;display:flex;flex-direction:row;align-items:center;
-  padding:0 8rem;background:linear-gradient(to top, rgba(8,12,18,0.92), rgba(8,12,18,0.32));
+.bph-strip{position:absolute;left:0;right:0;bottom:0;height:26rem;display:flex;flex-direction:row;align-items:center;
+  padding:0 6rem;background:linear-gradient(to top, rgba(8,12,18,0.92), rgba(8,12,18,0.32));
   backdrop-filter:blur(5px);}
-.bph-area{font-size:11rem;color:#dbe6f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.bph-stat{display:flex;flex-direction:row;align-items:center;margin-left:auto;cursor:pointer;padding:2rem 4rem;border-radius:5rem;}
+.bph-area{font-size:10.5rem;color:#dbe6f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:104rem;}
+.bph-stat{display:flex;flex-direction:row;align-items:center;cursor:pointer;padding:2rem 3rem;border-radius:5rem;}
+.bph-stat:first-of-type{margin-left:auto;}
 .bph-stat+.bph-stat{margin-left:2rem;}
 .bph-stat-n{font-size:11rem;color:#dbe6f0;margin-left:3rem;}
 .bph-stat-on .bph-stat-n{color:${C.voted};}
-.bph-name{font-size:14rem;color:${C.text};padding:7rem 8rem 0 8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bph-name{font-size:13.5rem;color:${C.text};padding:6rem 8rem 0 8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .bph-meta{display:flex;flex-direction:row;align-items:center;padding:4rem 8rem 8rem 8rem;}
 .bph-mini-av{width:16rem;height:16rem;border-radius:8rem;display:flex;align-items:center;justify-content:center;flex:0 0 16rem;}
 .bph-mini-txt{font-size:10rem;color:${C.bg};font-weight:bold;}

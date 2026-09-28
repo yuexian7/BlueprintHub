@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { C, IconArea, IconDownload, IconHeart, IconSearch, IconSpinner, IconWarning } from "./icons";
-import { areaArgs, areaSlugFor, avatarColor, CAT_COLOR, cmd, ItemCard, Option, placeholderCover, UiState } from "./api";
+import { areaArgs, areaSlugFor, avatarColor, CAT_COLOR, cmd, coverPlan, ItemCard, Option, UiState } from "./api";
 import { LArgs, Translate, prettyCount } from "./l10n";
 
 /**
@@ -78,6 +78,7 @@ export const Dropdown = ({
 export const MenuBar = ({ st, t }: { st: UiState; t: Translate }) => {
   const m = st.menu!;
   const [text, setText] = useState(m.search);
+  const [focus, setFocus] = useState(false);
   const timer = useRef<number | null>(null);
 
   // C# 改了条件（例如点「清空筛选」）时把输入框拉回来，否则前端会留着后端已经不用的词
@@ -92,19 +93,42 @@ export const MenuBar = ({ st, t }: { st: UiState; t: Translate }) => {
   return (
     <div className="bph-menu">
       <span className="bph-tile">{t("TILE_HINT", { tilem2: st.tileM2 || "388,129" })}</span>
-      <div className="bph-search">
+      {/* :focus-within 在 Cohtml 里不认（实机日志点名），所以高亮框靠自己的 focus 状态类 */}
+      <div className={"bph-search" + (focus ? " bph-search-on" : "")}>
         <IconSearch size={15} />
         <input
           type="text"
           value={text}
           placeholder={t("SEARCH_PLACEHOLDER")}
           onChange={(e) => { setText(e.target.value); push(e.target.value); }}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
         />
       </div>
       <div className="bph-spacer" />
       <Dropdown label={t("AREA_TITLE")} current={m.area} options={m.areas} onPick={(id) => cmd("area", id)} t={t} />
       <Dropdown label={t("SORT_TITLE")} current={m.sort} options={m.sorts} onPick={(id) => cmd("sort", id)} t={t} />
     </div>
+  );
+};
+
+/** 无封面时的占位图案：内联 `<svg>`（不吃 data URI，见 api.coverPlan 的注释）。 */
+const CoverPlaceholder = ({ cats, id }: { cats: string; id: string }) => {
+  const plan = coverPlan(cats, id);
+  return (
+    <svg className="bph-cover-svg" viewBox="0 0 100 70" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100" height="70" fill="#101a26" />
+      <g fill="none" stroke="#ffffff" strokeOpacity="0.07" strokeWidth="0.4">
+        <path d="M0 23 H100M0 60 H100M67 0 V70" />
+      </g>
+      <g fill={plan.color} opacity="0.85">
+        {plan.blocks.map((b, i) => <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} rx="1.5" opacity={b.o} />)}
+      </g>
+      <g fill="none" stroke={plan.color} strokeWidth="0.7" opacity="0.55">
+        <path d="M0 46 H100" />
+        <path d="M34 0 V70" />
+      </g>
+    </svg>
   );
 };
 
@@ -116,18 +140,18 @@ const agoText = (t: Translate, it: ItemCard): string => {
 };
 
 export const Card = ({ it, t, lang }: { it: ItemCard; t: Translate; lang: string }) => {
-  const cover = it.cover || placeholderCover(it.cats || "", it.id);
   const catColor = CAT_COLOR[((it.cats || "").split(",")[0] || "").trim()] || C.accent;
   const areaText = t(areaSlugFor(it), areaArgs(it));
   const nick = it.author || t("ANONYMOUS");
   return (
     <div className="bph-card" onClick={() => cmd("detail", it.id)}>
       <div className="bph-cover">
-        <img src={cover} alt="" />
+        {it.cover ? <img src={it.cover} alt="" /> : <CoverPlaceholder cats={it.cats || ""} id={it.id} />}
         <span className="bph-catbar" style={{ background: catColor }} />
         <div className="bph-strip">
-          <span className="bph-area" title={it.m2 + " ㎡"}>{areaText}</span>
-          <div className={"bph-stat" + (it.liked ? " bph-stat-on" : "")}
+          {/* title 是玩家看得见摸得着的悬停提示，必须走词条：0.3.0 这里是拼死串的「388,129 ㎡」 */}
+          <span className="bph-area" title={t("CARD_AREA_TINY", { m2: it.m2 })}>{areaText}</span>
+          <div className={"bph-stat bph-stat-push" + (it.liked ? " bph-stat-on" : "")}
             title={it.liked ? t("CARD_LIKED_TIP") : t("CARD_LIKE_TIP")}
             onClick={(e) => { e.stopPropagation(); cmd("like", it.id); }}>
             <IconHeart size={13} color={it.liked ? C.voted : C.like} filled={it.liked} />
@@ -136,7 +160,7 @@ export const Card = ({ it, t, lang }: { it: ItemCard; t: Translate; lang: string
           <div className={"bph-stat" + (it.used ? " bph-stat-on" : "")}
             title={it.used ? t("CARD_USED_TIP") : t("CARD_USE_TIP")}
             onClick={(e) => { e.stopPropagation(); cmd("dl", it.id); }}>
-            <IconDownload size={13} color={it.used ? C.voted : C.download} />
+            <IconDownload size={13} color={C.download} />
             <span className="bph-stat-n" style={{ color: it.used ? C.voted : "#dbe6f0" }}>{pretty(it.downloads, lang)}</span>
           </div>
         </div>

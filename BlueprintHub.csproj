@@ -40,6 +40,22 @@
 		      DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
 		<Warning Condition="!Exists('$(MSBuildProjectDirectory)\UI\dist\BlueprintHub.mjs')"
 		         Text="UI\dist\BlueprintHub.mjs 不存在：先跑 npm --prefix UI run build，否则游戏里没有面板。" />
+
+		<!--
+		  入口方块的图案是随包的 .svg：Cohtml 的 mask / 图片只吃「能当资源加载的 URL」，
+		  官方整份 index.css/index.js 里 data URI 0 次（详见 UI/src/icons.tsx 的注释）。
+		  模组包根就是 coui://ui-mods/（FACT：ModManager.InitializeUIModules 对每个模组
+		  AddHostLocation("ui-mods", UIModuleAsset 所在目录)），所以 UI\images\x.svg 必须落到包里的 images\x.svg。
+		  DeployWIP 是 OutDir\**\*.* 递归拷贝，因此只要进 OutDir 就会跟着部署。
+		-->
+		<Error Condition="!Exists('$(MSBuildProjectDirectory)\UI\images\BlueprintHub_Glyph.svg')"
+		       Text="UI\images\BlueprintHub_Glyph.svg 不存在：左上角入口会只剩蓝底没有图案。" />
+		<ItemGroup>
+			<UiImages Include="$(MSBuildProjectDirectory)\UI\images\**\*.svg" />
+		</ItemGroup>
+		<Copy SourceFiles="@(UiImages)"
+		      DestinationFiles="@(UiImages->'$(OutDir)images\%(RecursiveDir)%(Filename)%(Extension)')"
+		      SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
 	</Target>
 
 	<Target Name="RunModPublisher" AfterTargets="Publish">

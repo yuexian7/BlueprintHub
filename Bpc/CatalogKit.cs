@@ -12,31 +12,19 @@ namespace BlueprintHub.Bpc
     /// </summary>
     public static class CatalogKit
     {
-        // ---- 社区类型（需求 2 的 7 类；与 workshop 的 catalog/index.json 同源，改一处要改两处并跑校验）----
+        // ---- 社区类型（需求 2 的 7 类）----
+        // 这里只留 id 序列：**分类的中文名与定义不在 C# 里**，玩家可见文字唯一出处是 Locale.cs 的
+        // CAT_<id> / DESC_<id> 词条（0.3.1 起 workshop 目录那侧的 labelZh/definitionZh 由 tests/t3
+        // 直接和那张表对照钉住）。以前这两份常量表 + LabelZh/SubtitleLabel 没有任何生产代码在用，
+        // 上一轮改官方措辞时它就漂了，所以整段删掉，避免「面板左栏和列表标题各说各话」第二次发生。
         public static readonly string[] CategoryIds =
         {
             "residential", "commercial", "industrial", "park", "education", "public", "mixed"
         };
 
-        public static readonly string[] CategoryLabelsZh =
-        {
-            "住宅区", "商业区", "产业区", "公园区", "文教区", "公共区", "混合区"
-        };
-
-        public static readonly string[] CategoryDefinitionsZh =
-        {
-            "以居民住宅为主体，低密度商业/办公混合的社区",
-            "以商业街区、中大型商场或商业/办公高楼等为主体的社区",
-            "以产业设施、货运设施、资源设施或仓储等为主体的社区",
-            "以公园绿化、开放空间或景点建筑等为主的社区",
-            "以教育建筑、科研机构等为主体的社区",
-            "以客运设施、政府机构、公共服务设施等为主体的社区",
-            "多种功能高度融合、无法区分主体的社区"
-        };
-
         public const string Mixed = "mixed";
 
-        /// <summary>需求 5：上传时勾了多个主体类型 = 没有单一主体，自动归混合区。原始勾选仍留在 meta 里。</summary>
+        /// <summary>需求 5：上传时勾了多个主体类型 = 没有单一主体，自动归混合。原始勾选仍留在 meta 里。</summary>
         public static string[] IndexCategories(string[] chosen)
         {
             if (chosen == null || chosen.Length == 0) return new[] { Mixed };
@@ -49,21 +37,6 @@ namespace BlueprintHub.Bpc
             if (string.IsNullOrEmpty(id)) return false;
             for (int i = 0; i < CategoryIds.Length; i++) if (CategoryIds[i] == id) return true;
             return false;
-        }
-
-        public static string LabelZh(string id)
-        {
-            for (int i = 0; i < CategoryIds.Length; i++) if (CategoryIds[i] == id) return CategoryLabelsZh[i];
-            return id ?? string.Empty;
-        }
-
-        /// <summary>需求 1：小标题「什么区」的定义句 —— 没选就不显示，选哪个显示哪个。</summary>
-        public static string SubtitleLabel(string category, bool multiSelected)
-        {
-            if (multiSelected) return CategoryLabelsZh[6] + " · " + CategoryDefinitionsZh[6];
-            for (int i = 0; i < CategoryIds.Length; i++)
-                if (CategoryIds[i] == category) return CategoryLabelsZh[i] + " · " + CategoryDefinitionsZh[i];
-            return string.Empty;
         }
 
         // ---- 面积档（需求 3 的「全部 / 大 / 中 / 小」）----

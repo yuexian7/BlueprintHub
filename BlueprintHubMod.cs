@@ -20,7 +20,7 @@ namespace BlueprintHub
     public class BlueprintHubMod : IMod
     {
         /// <summary>与 Properties/PublishConfiguration.xml 的 &lt;ModVersion&gt; 一致，由 scripts/verify.mjs 钉死。</summary>
-        public const string kVersion = "0.3.0";
+        public const string kVersion = "0.3.1";
 
         public const string MOD_NAME = nameof(BlueprintHub);
 

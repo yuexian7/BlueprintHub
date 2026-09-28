@@ -191,8 +191,18 @@ export function areaArgs(it: ItemCard): { [k: string]: string } {
   return { tiles: it.tiles, m2: it.m2, wan: it.wan, km2: it.km2 };
 }
 
-/** 卡片没有封面时的占位图：直接内联 SVG，不引任何外部图片（省掉一个 host location 的失败面）。 */
-export function placeholderCover(categoryIds: string, seed: string): string {
+/**
+ * 卡片没有封面时的占位图案。
+ * 0.3.1 改动的原因：这里原本返回 `data:image/svg+xml,...`，而 Cohtml 对 data URI 的支持是
+ * 「mask 完全不吃、图片路径按资源加载」—— 官方整份 index.css/index.js 里 data URI 出现 0 次，
+ * 左上角那颗方块就是被这个坑成实心白块的。占位图不再走 URL，改成前端**内联 `<svg>` 元素**：
+ * 面板里的图标（心形/箭头/警告）一直是内联 SVG，实机确认画得出来，所以这条路比 data URI 稳。
+ * 这个函数只负责「画什么」（按 seed 稳定哈希出几块楼），不负责「怎么画」。
+ */
+export interface CoverBlock { x: number; y: number; w: number; h: number; o: string }
+export interface CoverPlan { color: string; blocks: CoverBlock[] }
+
+export function coverPlan(categoryIds: string, seed: string): CoverPlan {
   const first = (categoryIds || "").split(",")[0].trim();
   const color = CAT_COLOR[first] || "#4bc3f1";
   let h = 2166136261;
@@ -204,25 +214,14 @@ export function placeholderCover(categoryIds: string, seed: string): string {
     h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
     return Math.abs(h % n);
   };
-  let paths = "";
+  const blocks: CoverBlock[] = [];
   for (let i = 0; i < 9; i++) {
-    const x = 6 + rand(84);
-    const y = 10 + rand(50);
-    const w = 8 + rand(26);
-    const hh = 6 + rand(18);
-    const o = 0.1 + rand(28) / 100;
-    paths += `<rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="1.5" fill="${color}" opacity="${o.toFixed(2)}"/>`;
+    blocks.push({
+      x: 6 + rand(84), y: 10 + rand(50), w: 8 + rand(26), h: 6 + rand(18),
+      o: (0.1 + rand(28) / 100).toFixed(2),
+    });
   }
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70" preserveAspectRatio="none">` +
-    `<rect width="100" height="70" fill="#101a26"/>` +
-    `<g opacity="0.85">${paths}</g>` +
-    `<g stroke="${color}" stroke-width="0.7" opacity="0.55" fill="none">` +
-    `<path d="M0 46 H100"/><path d="M34 0 V70"/></g>` +
-    `<g fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="0.4">` +
-    `<path d="M0 23 H100M0 60 H100M67 0 V70"/></g>` +
-    `</svg>`;
-  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  return { color, blocks };
 }
 
 /** 首字母头像的小色块（作者名哈希出来的颜色，不是身份）。 */

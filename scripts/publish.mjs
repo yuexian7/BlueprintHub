@@ -1,12 +1,14 @@
 /**
- * 发布 0.3.0（用户口径：改好后上传线上，**保持 Private**；上传前先跑 pull-live.mjs 核对线上）。
+ * 发布当前版本（版本以 PublishConfiguration.xml 的 <ModVersion> 为准；
+ * 用户口径：改好后上传线上，**保持 Private**；上传前先跑 pull-live.mjs 核对线上）。
  *
  *   node scripts/publish.mjs                 # Publish（首发，PublishConfiguration.xml 里 ModId 为空）
  *   node scripts/publish.mjs --new-version   # NewVersion（ModId 已有值时用这个，别再造新条目）
  *   node scripts/publish.mjs --update-only   # Update（只推元数据，不传内容）
  *
- * 内容包 = releases/<ModVersion>/ 里的 **BlueprintHub.dll + BlueprintHub.mjs + mod.json** 三件
- * （与已上架的 BusLineAutoStops 同一形态；.pdb 与三平台桩不上线）。
+ * 内容包 = releases/<ModVersion>/ 里的 **BlueprintHub.dll + BlueprintHub.mjs + mod.json + images/*.svg**
+ * （dll/mjs/mod.json 与已上架的 BusLineAutoStops 同形态；images/ 是左上角入口方块的图案，
+ *   少它线上就只有蓝底 —— 0.3.1 起脚本会硬检查这个目录。pdb 与三平台桩不上线）。
  *
  * 本机踩过的坑（都写进这里，免得下次再查）：
  *  · 工具链是 net6.0，本机只有 .NET 8 运行时 → 必须 DOTNET_ROLL_FORWARD=Major
@@ -41,13 +43,24 @@ if (cmd === "NewVersion" && !modId) { console.error("✗ NewVersion 需要 ModId
 
 const out = path.join(ROOT, "releases", ver);
 fs.mkdirSync(out, { recursive: true });
-for (const f of ["BlueprintHub.dll", "BlueprintHub.mjs", "mod.json"]) {
+// 内容包 = 模组包目录里除 pdb 之外的一切。0.3.1 起多了一个 images\ 目录：
+// 左上角方块的图案是随包的 .svg（Cohtml 只吃能当资源加载的 URL，官方 CSS 里 data URI 0 次），
+// 漏了它 = 线上版本入口只剩蓝底没图案，而这只有下载玩家才看得见 —— 所以整目录拷，不点名文件。
+const FILES = ["BlueprintHub.dll", "BlueprintHub.mjs", "mod.json"];
+const DIRS = ["images"];
+for (const f of FILES) {
   const src = path.join(DEPLOY, f);
   if (!fs.existsSync(src)) { console.error("✗ 本机部署目录缺 " + f + "（先 dotnet build -c Release）"); process.exit(1); }
   fs.copyFileSync(src, path.join(out, f));
 }
+for (const d of DIRS) {
+  const src = path.join(DEPLOY, d);
+  if (!fs.existsSync(src)) { console.error("✗ 本机部署目录缺 " + d + "\\（入口图案 svg 在这里，先 dotnet build -c Release）"); process.exit(1); }
+  fs.mkdirSync(path.join(out, d), { recursive: true });
+  for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(out, d, f));
+}
 const banner = fs.readFileSync(path.join(out, "BlueprintHub.mjs"), "utf8").slice(0, 200);
-if (!/Version: " \+ ver/.test(banner) && !banner.includes("Version: " + ver))
+if (!banner.includes("Version: " + ver))
   console.warn("⚠ .mjs 横幅里的 Version 与 " + ver + " 不一致：游戏解析 moduleInfo 用的就是这行，回 UI/mod.json 改齐再重跑 webpack");
 
 console.log(`→ ${cmd} v${ver} · AccessLevel=${access} · 内容 ${out}`);

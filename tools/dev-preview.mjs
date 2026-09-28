@@ -41,6 +41,13 @@ const AREA_IDS = ["all", "small", "medium", "large"];
 
 const readIf = (p) => { try { return fs.readFileSync(p, "utf8"); } catch { return null; } };
 
+/** 顶栏那个版本号必须是真的：直接从 BlueprintHubMod.cs 读 kVersion，免得预览台拍出一张撒谎的图。 */
+function modVersion() {
+  const src = readIf(path.join(ROOT, "BlueprintHubMod.cs")) || "";
+  return (src.match(/kVersion\s*=\s*"([^"]+)"/) || [null, "0.0.0-dev"])[1];
+}
+const MODVER = modVersion();
+
 // ---------------- 词典：从 Locale.cs 现读，杜绝两份文案漂移 ----------------
 function panelDict(locale) {
   const src = readIf(path.join(ROOT, "Locale.cs")) || "";
@@ -198,7 +205,7 @@ async function buildState() {
   return {
     seq: Date.now(), visible: !session.closed, opacity: session.opacity, lang: session.lang,
     dev: src.from === "dev-catalog" || src.from === "demo",
-    modVersion: "0.3.0", titleSlug: "PANEL_TITLE", hotkey: "B",
+    modVersion: MODVER, titleSlug: "PANEL_TITLE", hotkey: "B",
     status,
     statusSlug: status === "error" ? "ERR_TITLE" : status === "empty" ? "EMPTY_TITLE"
       : status === "loading" ? "STATUS_LOADING" : status === "noresult" ? "NORESULT_TITLE" : "",
@@ -245,18 +252,39 @@ async function onCmd(raw) {
 }
 let toastId = 0;
 
-const PAGE = (state, locale, native) => `<!doctype html><html><head><meta charset="utf-8"><title>BlueprintHub 预览台</title>
+const PAGE = (state, locale, native, neighbors) => {
+  // 下面 :root 那批变量、以及 .info-menu-layout / .ke4 / .be5 三条规则，都是 0.3.1 从游戏
+  // index.css 里逐字抄来的。抄来的意义：预览台排得对，游戏里才是真的排得对 ——
+  // 尤其 >*{margin:0 6rem 6rem 0} 这条，它就是「左上角这一排本来自动排、模组不该自己算 left」的证据本体。
+  return `<!doctype html><html><head><meta charset="utf-8"><title>BlueprintHub 预览台</title>
 <style>
 html{font-size:1px}body{margin:0;height:100vh;overflow:hidden;
   background:url('/files/preview-bg.svg') center/cover no-repeat,#0b1118;
   font:14px "Microsoft YaHei","Noto Sans CJK SC",sans-serif;color:#dfe8f0}
-#game{position:fixed;inset:0}#topleft{position:fixed;left:12px;top:70px;display:flex;z-index:5}
+:root{--accentColorNormal:#4bc3f1;--accentColorNormal-hover:#7ad3f5;--accentColorNormal-pressed:#c1eafa;
+  --accentColorLight:#9ee2fc;--accentColorDark:#1e83aa;--selectedColor:#1e83aa;
+  --normalTextColor:#F0FBFF;--positiveColor:#8bdb46;--warningColor:#ffa42d;--negativeColor:#e95f4a;
+  --floatingToggleSize:40rem;--floatingToggleBorderRadius:6rem;--gap2:2px;--stroke1:1px;--stroke2:2px;
+  --screenPadding:10rem;--panelRadius:4rem}
+.info-menu-layout{pointer-events:auto;position:absolute;top:10rem;left:10rem;display:flex}
+.info-menu-layout>*{margin:0 6rem 6rem 0}
+.ke4{display:flex;justify-content:center;align-items:center;width:var(--floatingToggleSize);height:var(--floatingToggleSize);
+  padding-top:var(--gap2);padding-right:var(--gap2);padding-bottom:var(--gap2);padding-left:var(--gap2);
+  background-color:var(--accentColorNormal);border-top-left-radius:var(--floatingToggleBorderRadius);
+  border-top-right-radius:var(--floatingToggleBorderRadius);border-bottom-left-radius:var(--floatingToggleBorderRadius);
+  border-bottom-right-radius:var(--floatingToggleBorderRadius)}
+.ke4:hover{background-color:var(--accentColorNormal-hover)}
+.ke4:active{background-color:var(--accentColorNormal-pressed)}
+.be5{width:100%;height:100%;--iconColor:rgb(250,250,250)}
+#game{position:fixed;inset:0}
+/* 左上角容器：与游戏同一个形状，按顺序排「邻居模组 → 我们」，间距由 >* 的 margin 给 */
+#topleft{position:absolute;top:10rem;left:10rem;display:flex;pointer-events:auto;z-index:5}
+#topleft>*{margin:0 6rem 6rem 0}
+.nb{display:flex;justify-content:center;align-items:center;width:40rem;height:40rem;padding:6rem;font-size:13rem;
+  font-weight:bold;color:#0d2230;background-color:#4bc3f1;border-top-left-radius:6rem;border-top-right-radius:6rem;
+  border-bottom-left-radius:6rem;border-bottom-right-radius:6rem}
 #bar{position:fixed;right:10px;bottom:8px;z-index:9;font:12px monospace;color:#8fa0b0}
 #bar a{color:#4bc3f1;cursor:pointer;margin-left:8px}
-/* 假的原版 Button variant="floating"：40rem 方块 / 6rem 圆角 / --accentColorNormal 蓝底（值取自游戏 index.css） */
-.fb{width:40rem;height:40rem;border-radius:6rem;border:0;padding:6rem;cursor:pointer;display:block;
-  background:#4bc3f1;box-shadow:0 2rem 6rem rgba(0,0,0,0.45)}
-.fb:hover{background:#7ad3f5}
 </style>
 <script src="/react.js"></script><script src="/react-dom.js"></script>
 <script>
@@ -277,15 +305,20 @@ window["cs2/l10n"] = {
   },
   Localized: function () { return null; },
 };
+// 假 cs2/ui：按 icon-button.tsx 的 $b 真实现画 —— 有 src 就 <img class=be5>，tinted 才上 mask；
+// variant="floating" 与 FloatingButton 都落到官方那对 theme 类（.ke4 / .be5）。
+// Tooltip 原版把浮层丢进 Portal，不占 flex 行，所以这里也用 Fragment 原样交出 children。
 window["cs2/ui"] = ${native ? `{
-  Button: function (p) {
-    var kids = React.Children.toArray(p.children);
-    return React.createElement("button", { className: "fb", onClick: function () { p.onSelect && p.onSelect({}); },
-      title: p.title || "" }, kids);
+  _btn: function (p, cls) {
+    var kids = [];
+    if (p.src) kids.push(React.createElement("img", { src: p.src, className: "be5", alt: "" }));
+    if (p.children) { var c = React.Children.toArray(p.children); for (var i = 0; i < c.length; i++) kids.push(c[i]); }
+    return React.createElement("button", { className: cls, onClick: function () { p.onSelect && p.onSelect({}); } }, kids);
   },
-  Tooltip: function (p) {
-    return React.createElement("div", { title: String(p.tooltip || "") }, p.children);
-  },
+  Button: function (p) { return window["cs2/ui"]._btn(p, p.variant === "floating" ? "ke4" : "fbx"); },
+  FloatingButton: function (p) { return window["cs2/ui"]._btn(p, "ke4"); },
+  Icon: function (p) { return React.createElement("img", { src: p.src, className: "be5", alt: "" }); },
+  Tooltip: function (p) { return React.createElement(React.Fragment, null, p.children); },
   useTooltip: function () { return {}; },
 }` : "undefined"};
 window["cohtml/cohtml"] = { call: function () { return Promise.resolve(null); }, on: function () {}, trigger: function () {} };
@@ -295,20 +328,40 @@ window.__cmd = async function (a) {
   window.__rerender();
 };
 </script></head><body>
-<div id="topleft"></div><div id="game"></div>
+<div id="topleft">${neighbors ? `<div class="nb">RB</div><div class="nb">WE</div>` : ""}</div>
+<div id="game"></div>
 <div id="bar">预览台 · 只在本机
 <a href="/?status=error">失败态</a><a href="/?status=empty">空态</a><a href="/?status=loading">加载态</a>
 <a href="/?cat=park">选中类</a><a href="/?page=2">翻页</a><a href="/?lang=en-US">EN</a><a href="/?lang=zh-HANT">繁</a>
-<a href="/?native=0">降级按钮</a><a href="/?demo=15">合成布局</a><a href="/">恢复</a></div>
+<a href="/?native=0">降级按钮</a><a href="/?neighbors=0">去掉邻居</a><a href="/?demo=15">合成布局</a><a href="/">恢复</a></div>
 <script type="module">
 import register from "/BlueprintHub.mjs";
-const roots = { Game: ReactDOM.createRoot(document.getElementById("game")),
-                GameTopLeft: ReactDOM.createRoot(document.getElementById("topleft")) };
+const roots = { Game: ReactDOM.createRoot(document.getElementById("game")) };
+// createRoot 会把容器原有子节点清空 —— 邻居方块就是被它抹掉的。
+// 所以另建一个 display:contents 的挂载点：它对 flex 布局透明，我们的 .bph-toggle 仍然是那一行的直接子项，
+// 与游戏里 append 进 .info-menu-layout 的形态一致。
+const tl = document.getElementById("topleft");
+const host = document.createElement("div");
+host.style.display = "contents";
+tl.appendChild(host);
+roots.GameTopLeft = ReactDOM.createRoot(host);
 const comps = {};
+// 真组件里图片 src 写的是 coui://ui-mods/images/xxx.svg —— Chrome 不吃这个协议。
+// 这里统一改写成 /coui/ui-mods/...，服务端再映射回 UI/ 目录（等价于游戏把模组包根挂成 ui-mods 宿主）。
+const fixCoui = () => {
+  const imgs = document.querySelectorAll("img");
+  for (const im of imgs) {
+    const s = im.getAttribute("src");
+    if (s && s.indexOf("coui://") === 0) im.setAttribute("src", "/coui/" + s.slice(7));
+  }
+};
+new MutationObserver(fixCoui).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["src"] });
 register({ append(slot, comp) { comps[slot] = comp; if (roots[slot]) roots[slot].render(React.createElement(comp)); } });
 window.__rerender = () => { for (const [slot, comp] of Object.entries(comps)) if (roots[slot]) roots[slot].render(React.createElement(comp)); };
+fixCoui();
 console.log("[preview] module registered, slots =", Object.keys(comps).join(","));
 </script></body></html>`;
+};
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".css": "text/css", ".json": "application/json", ".png": "image/png" };
 const BG = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#16212e"/>${Array.from({ length: 14 }, (_, i) => `<g stroke="${i % 3 === 0 ? "#2b3a4a" : "#22303f"}" stroke-width="${i % 3 === 0 ? 7 : 3}"><line x1="0" y1="${i * 28}" x2="640" y2="${i * 28 + 30}"/></g>`).join("")}${Array.from({ length: 9 }, (_, i) => `<line x1="${i * 74}" y1="0" x2="${i * 74 + 20}" y2="360" stroke="#22303f" stroke-width="4"/>`).join("")}</svg>`;
@@ -337,7 +390,7 @@ const server = http.createServer((req, res) => {
     session.closed = url.searchParams.get("closed") === "1";
     const liked = g("like", "");
     if (liked) { session.votes.add("L" + liked); session.votes.add("D" + liked); }
-    buildState().then((s) => send(PAGE(s, session.lang, g("native", "1") !== "0"), MIME[".html"]));
+    buildState().then((s) => send(PAGE(s, session.lang, g("native", "1") !== "0", g("neighbors", "1") !== "0"), MIME[".html"]));
     return;
   }
   if (url.pathname === "/react.js") return send(fs.readFileSync(path.join(NM, "react/umd/react.production.min.js")), MIME[".js"]);
@@ -346,6 +399,22 @@ const server = http.createServer((req, res) => {
     const dist = path.join(UI, "dist/BlueprintHub.mjs");
     if (!fs.existsSync(dist)) return send("console.warn('先跑 cd UI && npx webpack')", MIME[".js"]);
     return send(fs.readFileSync(dist), MIME[".mjs"]);
+  }
+  // coui://<host>/<path> 的本地等价：/coui/ui-mods/images/x.svg → UI/images/x.svg。
+  // 游戏里 ui-mods 宿主的根 = 模组包目录（ModManager.InitializeUIModules 对每个模组
+  // AddHostLocation("ui-mods", 资产所在目录)），所以包里的 images/ 就是 coui://ui-mods/images/。
+  if (url.pathname.startsWith("/coui/")) {
+    const seg = url.pathname.slice(6).split("/");   // "/coui/ui-mods/images/x.svg" → ["ui-mods","images","x.svg"]
+    const host = seg.shift();
+    const rel = seg.join(path.sep);
+    const base = host === "ui-mods" ? UI
+      : host === "blueprinthubcovers" ? path.join(os.tmpdir(), "BlueprintHub") : null;
+    if (base && rel) {
+      const f2 = path.join(base, rel);
+      if (f2.startsWith(base) && fs.existsSync(f2)) return send(fs.readFileSync(f2), MIME[path.extname(f2)] || "application/octet-stream");
+    }
+    res.writeHead(404); res.end("coui 宿主不认识: " + url.pathname);
+    return;
   }
   if (url.pathname === "/files/preview-bg.svg") return send(BG, MIME[".svg"]);
   if (url.pathname.startsWith("/files/")) {

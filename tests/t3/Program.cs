@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using BlueprintHub.Bpc;
 
 namespace BlueprintHub.Tests
 {
     /// <summary>
-    /// 离线 T3 闸门：只编 Bpc/ 四个纯逻辑文件（零游戏 DLL、零网络），断言「工坊读侧的算术与解析」。
+    /// 离线 T3 闸门：只编 Bpc/ 那几个纯逻辑文件（零游戏 DLL、零网络），断言「工坊读侧的算术与解析」。
     /// 为什么值得写：这些判据一旦在真机上看板才知道错，成本是「重编模组 + 重开游戏 + 重开面板」；
     /// 在这里跑只要几毫秒。列表排序/分页错了 = 玩家看到重复或漏条目，是最刺眼的 bug。
     /// </summary>
@@ -134,13 +135,19 @@ namespace BlueprintHub.Tests
                 Check(CatalogKit.IsKnownCategory(c.Id), "索引分类 id 与模组内置 7 类对齐：" + c.Id);
                 Check(c.LabelZh.Length > 0 && c.DefinitionZh.Length > 0, "分类带中文label与定义：" + c.Id);
             }
-            // 分类名与定义必须与 C# 常量同源，否则面板左右两栏会各说各话
+            // 分类名/定义必须同源。0.3.1 起对照面从「C# 常量」换成「Locale.cs 的 CAT_/DESC_ 词条」——
+            // 因为玩家可见文字的唯一出处就是那张表（选项页与面板都走游戏本地化），
+            // 而 workshop 的 catalog 是给读侧当分类标签用的；两边各说各话 = 面板左栏和列表标题打架。
+            LocaleEntries panel = LocaleEntries.Load();
+            Check(panel.Count >= 14, "Locale.cs 面板表里抓到 CAT_/DESC_ 词条（抓到 " + panel.Count + " 条）");
             for (int i = 0; i < CatalogKit.CategoryIds.Length; i++)
             {
                 BrowseKit.CategoryMeta c = m.Find(CatalogKit.CategoryIds[i]);
-                Check(c != null && c.LabelZh == CatalogKit.CategoryLabelsZh[i]
-                      && c.DefinitionZh == CatalogKit.CategoryDefinitionsZh[i],
-                      "词条同源：" + CatalogKit.CategoryIds[i]);
+                string id = CatalogKit.CategoryIds[i];
+                string catSlug = panel.Get("CAT_" + id), descSlug = panel.Get("DESC_" + id);
+                Check(c != null && catSlug == c.LabelZh && descSlug == c.DefinitionZh,
+                      "词条同源：" + id + "（面板「" + catSlug + " / " + Short(descSlug) + "」 vs 目录「"
+                      + (c == null ? "?" : c.LabelZh) + " / " + (c == null ? "?" : Short(c.DefinitionZh)) + "」）");
             }
 
             string bad = "{ \"schemaVersion\": 1 }";
@@ -464,8 +471,9 @@ namespace BlueprintHub.Tests
             Check(BrowseKit.RelativeTimeZh("2099-01-01T00:00:00Z", now) == "刚刚", "时钟不齐（未来时间）当「刚刚」，不许出现「-3 天前」");
             Check(BrowseKit.RelativeTimeZh("不是日期", now) == "不是日期", "解析失败就原样显示，不编一个假时间");
             Check(BrowseKit.Count(999) == "999" && BrowseKit.Count(10000) == "10k", "计数：宽度受限时缩写");
-            Check(CatalogKit.SubtitleLabel("park", false).StartsWith("公园区 ·"), "小标题：只在选中时给出定义句");
-            Check(CatalogKit.SubtitleLabel("", false).Length == 0, "小标题：没选中就是空串（面板据此不占行）");
+            // 0.3.1：这里原有两条 CatalogKit.SubtitleLabel(...) 断言随那段 C# 常量一起删了 ——
+            // 分类标题与定义句现在由 UISystem 发 CAT_/DESC_ 词条 slug、前端 t() 取文，
+            // C# 不再拼句子（拼出来的句子翻不动）。同源检查改在 MetaFromRealIndex 里对着 Locale.cs 跑。
         }
 
         // ---------------- 与真 builder 产物对一遍（开发覆盖目录存在时才跑）----------------
@@ -638,6 +646,71 @@ namespace BlueprintHub.Tests
                 {
                     if (File.Exists(Path.Combine(d.FullName, "BlueprintHub.csproj")))
                         return Path.Combine(d.Parent == null ? d.FullName : d.Parent.FullName, name);
+                    d = d.Parent;
+                }
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        /// <summary>失败信息太长会淹没一行断言，定义句只留前 12 个字。</summary>
+        private static string Short(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
+            return s.Length <= 12 ? s : s.Substring(0, 12) + "…";
+        }
+
+        /// <summary>
+        /// 从模组根读 Locale.cs，抓简体中文那份面板表 PanelZh() 里的 CAT_/DESC_ 词条。
+        /// 直接在测试里解析源文件而不是引 C# 常量，是因为 0.3.1 之后玩家可见文字的**唯一出处**
+        /// 就是这张表（面板和选项页都通过游戏本地化取文），C# 里再存一份标签必然漂移 —— 事实上就漂了：
+        /// 上一轮按官方语言包把 workshop 目录的措辞改成「住宅/商业/…的市辖区」，而 CatalogKit
+        /// 里那份旧常量还写着「住宅区/产业区」，就是这个类当场抓出来的。
+        /// </summary>
+        private sealed class LocaleEntries
+        {
+            private readonly Dictionary<string, string> map = new Dictionary<string, string>();
+
+            public int Count { get { return map.Count; } }
+
+            public string Get(string slug)
+            {
+                string v;
+                return map.TryGetValue(slug, out v) ? v : null;
+            }
+
+            public static LocaleEntries Load()
+            {
+                LocaleEntries e = new LocaleEntries();
+                string path = Path.Combine(ModRoot(), "Locale.cs");
+                if (!File.Exists(path)) return e;
+                string src = File.ReadAllText(path);
+                int start = src.IndexOf("Dictionary<string, string> PanelZh()", StringComparison.Ordinal);
+                if (start < 0) return e;
+                int end = src.IndexOf("\n        }", start, StringComparison.Ordinal);
+                string body = src.Substring(start, end < 0 ? src.Length - start : end - start);
+                MatchCollection ms = Regex.Matches(body,
+                    "\\{\\s*\"([^\"]+)\"\\s*,\\s*\"((?:\\\\.|[^\"\\\\])*)\"\\s*,?\\s*\\}");
+                foreach (Match m in ms)
+                {
+                    string slug = m.Groups[1].Value;
+                    if (!slug.StartsWith("CAT_", StringComparison.Ordinal) && !slug.StartsWith("DESC_", StringComparison.Ordinal))
+                        continue;
+                    e.map[slug] = m.Groups[2].Value.Replace("\\\"", "\"");
+                }
+                return e;
+            }
+        }
+
+        /// <summary>模组根 = 有 BlueprintHub.csproj 的那一层。</summary>
+        private static string ModRoot()
+        {
+            try
+            {
+                DirectoryInfo d = new DirectoryInfo(Directory.GetCurrentDirectory());
+                while (d != null)
+                {
+                    if (File.Exists(Path.Combine(d.FullName, "BlueprintHub.csproj"))) return d.FullName;
                     d = d.Parent;
                 }
             }

@@ -205,7 +205,7 @@ namespace BlueprintHub
             { "DESC_commercial", "以商业街、商场或办公楼为主的市辖区" },
             { "DESC_industrial", "以工业、货运或仓储设施为主的市辖区" },
             { "DESC_park", "以公园绿地和开放空间为主的市辖区" },
-            { "DESC_education", "以学校和科研机构为主的市辖区" },
+            { "DESC_education", "以学校和研究机构为主的市辖区" },
             { "DESC_public", "以客运、政务和公共服务为主的市辖区" },
             { "DESC_mixed", "功能混合、没有明显主体的市辖区" },
 

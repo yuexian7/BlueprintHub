@@ -88,44 +88,18 @@ export const IconSpinner = ({ size = 18, color = C.accent, style }: P) =>
 export const IconWarning = ({ size = 18, color = C.action, style }: P) =>
   wrap(size, color, style, <><path d="M12 4.5 20 19H4Z" /><path d="M12 10v4.2" /><path d="M12 16.6v.6" /></>);
 
-// ---------------- 入口按钮的白色图案 ----------------
+// ---------------- 入口方块的图案（左上角 GameTopLeft）----------------
 
 /**
- * 左上角入口的图案：一张区划图（边框 + 两条路 + 两个街区）。
- * 用 CSS mask 上色的好处：底与字都由原版 Button 的 theme 决定（蓝底 #4bc3f1 + 白图案），
- * 玩家换主题/游戏改色时它跟着变 —— 这就是「和右边那两个图标一个规范」的做法，而不是我照着截图临摹。
- * mask 只吃 alpha，所以描边颜色写死黑色即可。
+ * FACT（0.3.1 定位到的两处实测结论，别再倒回去）：
+ *  1. Cohtml 2.2.1.3 认 mask，但**只认能当成图片资源加载的 URL**。整份游戏 index.css / index.js 里
+ *     data URI 出现 0 次，官方图标全是 `url(Media/Glyphs/Checkmark.svg)` 这种文件路径。
+ *     0.3.0 用 `mask-image:url("data:image/svg+xml,...")` + `background-color:#fff` 的空 span，
+ *     mask 没生效 → 剩下的就是一整块实心白方 —— 玩家看到的「只有白底」就是这么来的。
+ *  2. 游戏的 Button 有 `src` 属性：`src` 存在时它自己渲染 `<img class=icon_be5 onError=缺图占位>`，
+ *     `tinted` 时才走官方 TintedIcon（div + mask）。所以图案交给官方组件画，我只给路径。
+ *     这样即使 svg 没到，官方占位图会顶上，最坏是蓝底没图案，不会再变成白块。
+ * 图案本身随包发布在 UI/images/，宿主根 = UIModuleAsset 所在目录（FACT：ModManager.InitializeUIModules
+ * 对每个模组 AddHostLocation("ui-mods", 资产目录)），所以引用写成 coui://ui-mods/images/xxx.svg。
  */
-export const LAUNCHER_GLYPH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-<g fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-<rect x="7" y="7" width="34" height="34" rx="4.5"/>
-<path d="M7 27 H41"/><path d="M27 7 V41"/>
-</g>
-<g fill="#000">
-<rect x="11.5" y="11.5" width="9.5" height="8.5" rx="1.6"/>
-<rect x="31.5" y="31.5" width="8" height="8.5" rx="1.6"/>
-<circle cx="27" cy="27" r="2.6"/>
-</g></svg>`;
-
-export const GLYPH_URL = `url("data:image/svg+xml,${encodeURIComponent(LAUNCHER_GLYPH)}")`;
-
-/**
- * 图标元素没有 .icon 类（游戏 CSS 模块的类名是哈希的，外部拿不到），
- * 所以把游戏 .icon 的规则逐条内联补上：尺寸、mask 参数、白色填充。
- * maskSize 用 "100% 100%" 而不是 "contain"：两者对正方形图标等价，但前者在
- * jsdom / 老版 cssstyle 里也能被接受（node 实测 contain 会被静默丢弃）。
- */
-export const glyphStyle: React.CSSProperties = {
-  width: "100%",
-  height: "100%",
-  display: "block",
-  backgroundColor: "#fff",
-  maskImage: GLYPH_URL,
-  WebkitMaskImage: GLYPH_URL,
-  maskRepeat: "no-repeat",
-  WebkitMaskRepeat: "no-repeat",
-  maskSize: "100% 100%",
-  WebkitMaskSize: "100% 100%",
-  maskPosition: "center",
-  WebkitMaskPosition: "center",
-};
+export const LAUNCHER_GLYPH_SRC = "coui://ui-mods/images/BlueprintHub_Glyph.svg";

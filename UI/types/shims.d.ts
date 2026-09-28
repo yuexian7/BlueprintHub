@@ -1,6 +1,20 @@
+/**
+ * cs2/modding —— 逐条抄自游戏自带的官方模板
+ * `<game>/Cities2_Data/Content/Game/.ModdingToolchain/npx-create-csii-ui-mod/template/types/modding.d.ts`
+ * 要点（0.3.1 校准）：
+ *   append(target, component, index?) 的 target 合法值只有 7 个：
+ *     Menu / Editor / Game / GameTopLeft / GameTopRight / GameBottomRight / UniversalModMenu
+ *   （**没有** GameBottomLeft —— 0.3.0 的注释里写错了一处，别再照它加槽位。）
+ *   index 可以是负数，用来插到已有列表前面。
+ */
 declare module "cs2/modding" {
+  export type AppendHookTargets =
+    "Menu" | "Editor" | "Game" | "GameTopLeft" | "GameTopRight" | "GameBottomRight" | "UniversalModMenu";
   export type ModRegistrar = (registry: {
-    append: (slot: string, component: React.ComponentType) => void;
+    append: (target: AppendHookTargets, component: React.ComponentType, index?: number) => void;
+    extend: (modulePath: string, exportNameOrValue: unknown, extendCb?: unknown) => void;
+    get: (modulePath: string, exportName: string) => any;
+    hasAppend: (target: AppendHookTargets) => boolean;
   }) => void;
 }
 
@@ -28,29 +42,60 @@ declare module "cs2/l10n" {
   export const Localized: React.ComponentType<{ value?: unknown; transformer?: unknown }>;
 }
 
-// 游戏自带的 React 组件库，运行时由 window["cs2/ui"] 提供（webpack externals）。
-// Button variant="floating" 就是原版左上角那排小方按钮：theme 给 40rem 尺寸、6rem 圆角、
-// --accentColorNormal 蓝底，以及 hover / active / .selected 状态 —— 入口按钮要「和旁边的图标一个规范」，
-// 用它就不是我在模仿规范，而是我在用规范本身。
-// 注意：Button 会把未识别的 prop 透传到根 <button>，但**不透传 alt**；
-//       Tooltip 的 tooltip 必须是 string，否则报 "[tooltip] must be of type string"。
+/**
+ * cs2/ui —— 逐条抄自官方模板同目录的 ui.d.ts，并从游戏 UI bundle 里核对过实现（不是猜的）：
+ *   Button 的 variant 合法值 = "flat" | "primary" | "round" | "menu" | "icon" | "floating" | "text" | "default"
+ *     （index.js @713141 的映射表 bj={flat,primary,round,menu,default,icon,floating,text}；
+ *      0.3.0 这份声明里那几个 "editor"/"destructive"/"square" 是我自己编的，删掉了。）
+ *   variant="floating" → theme {button:"button_ke4", icon:"icon_be5"}
+ *     .button_ke4 = 40rem 方块 / padding var(--gap2) / background-color var(--accentColorNormal)
+ *                   / 四角 var(--floatingToggleBorderRadius)，另带 :hover(:active/.selected/[disabled])
+ *     .icon_be5   = width:100%;height:100%;--iconColor:rgb(250,250,250)
+ *   Button 实现（icon-button.tsx 的 $b）：`src` 存在 → tinted ? <TintedIcon> : <img onError=缺图占位>；
+ *     `src` 不存在 → 只画按钮本体再塞 children。所以图案要给 src，别自己塞一个涂色的 span。
+ *   FloatingButton = Button + {tinted:true, theme:floating}，是官方给「左上角方块」的现成组件。
+ *   Tooltip 的 children 要求是可挂 ref 的元素；tooltip 必须给 string。
+ */
 declare module "cs2/ui" {
+  export type ButtonVariant = "flat" | "primary" | "round" | "menu" | "icon" | "floating" | "text" | "default";
   export const Button: React.ComponentType<{
-    variant?: "default" | "floating" | "editor" | "primary" | "destructive" | "hover" | "square" | "round";
-    selectable?: boolean;
+    variant?: ButtonVariant;
+    src?: string;
+    tinted?: boolean;
+    theme?: Record<string, unknown>;
+    focusKey?: unknown;
     selected?: boolean;
     disabled?: boolean;
-    onSelect?: (e: unknown) => void;
+    onSelect?: (e?: unknown) => void;
     className?: string;
     style?: React.CSSProperties;
     children?: React.ReactNode;
     [key: string]: unknown;
   }>;
+  export const FloatingButton: React.ComponentType<{
+    src?: string;
+    tinted?: boolean;
+    focusKey?: unknown;
+    selected?: boolean;
+    disabled?: boolean;
+    onSelect?: (e?: unknown) => void;
+    className?: string;
+    style?: React.CSSProperties;
+    children?: React.ReactNode;
+    [key: string]: unknown;
+  }>;
+  export const Icon: React.ComponentType<{ src: string; tinted?: boolean | string; className?: string; children?: React.ReactNode }>;
   export const Tooltip: React.ComponentType<{
-    tooltip: string;
-    direction?: string;
+    tooltip: React.ReactNode;
+    direction?: "up" | "down" | "left" | "right";
+    alignment?: "start" | "center" | "end";
+    disabled?: boolean;
     children?: React.ReactNode;
   }>;
+  export const Panel: React.ComponentType<Record<string, unknown>>;
+  export const PanelSection: React.ComponentType<Record<string, unknown>>;
+  export const Portal: React.ComponentType<{ children?: React.ReactNode }>;
+  export const Scrollable: React.ComponentType<Record<string, unknown>>;
   export function useTooltip(): unknown;
 }
 

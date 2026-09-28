@@ -19,3 +19,5 @@ tests/*/*.json
 tests/*.png
 Tools/publish/
 state/
+
+releases/

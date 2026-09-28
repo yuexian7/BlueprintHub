@@ -21,8 +21,8 @@ namespace BlueprintHub.Platform
     /// </summary>
     public static class WorkshopClient
     {
-        // GitHub 对带 UA 的请求更宽容，也是排障时的身份标识
-        private const string USER_AGENT = "BlueprintHub/0.1.0 (Cities Skylines II mod)";
+        // GitHub 对带 UA 的请求更宽容，也是排障时的身份标识。版本号跟着模组走，不许写死（写死过一次：0.2/0.3 的包还在报 0.1.0）
+        private static readonly string USER_AGENT = "BlueprintHub/" + BlueprintHubMod.kVersion + " (Cities Skylines II mod)";
 
         /// <summary>整个进程共用一个 client；超时收紧到秒级，别用默认 100 秒。</summary>
         private static readonly HttpClient s_http = CreateClient();
@@ -84,6 +84,34 @@ namespace BlueprintHub.Platform
 
         public static int MirrorCount { get { lock (s_gate) return Mirrors.Length; } }
         public static int ActiveMirror { get { lock (s_gate) return s_mirror; } }
+
+        /// <summary>给错误提示用的一行镜像名单（只取主机名，语言无关）。</summary>
+        public static string MirrorList()
+        {
+            string[] arr;
+            lock (s_gate) arr = Mirrors;
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < arr.Length; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                sb.Append(HostOf(arr[i]));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>https://host/path → host（拿不到就原样返回，别在错误提示里再抛一次）。</summary>
+        public static string HostOf(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return string.Empty;
+            int p = url.IndexOf("://", StringComparison.Ordinal);
+            string rest = p < 0 ? url : url.Substring(p + 3);
+            int slash = rest.IndexOf('/');
+            return slash < 0 ? rest : rest.Substring(0, slash);
+        }
+
+        /// <summary>开发覆盖是否生效（玩家机器上没有 dev-catalog 目录 → 恒 false）。</summary>
+        public static bool UsingDevCatalog { get { return s_DevActive; } }
+        private static volatile bool s_DevActive;
 
         /// <summary>请求次数上限（含降级换镜像）：3 个镜像各试一次。</summary>
         public const int MAX_ATTEMPTS = 3;
@@ -313,6 +341,7 @@ namespace BlueprintHub.Platform
 
         private static byte[] DevRead(string file, string rel)
         {
+            s_DevActive = true;
             if (Interlocked.CompareExchange(ref s_DevLogged, 1, 0) == 0)
                 BlueprintHubMod.log.Warn("开发覆盖生效：读本地 dev-catalog，不访问网络（" + DevCatalogDir + "）");
             try { return File.ReadAllBytes(file); }

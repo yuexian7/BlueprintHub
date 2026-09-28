@@ -20,7 +20,7 @@ namespace BlueprintHub
     public class BlueprintHubMod : IMod
     {
         /// <summary>与 Properties/PublishConfiguration.xml 的 &lt;ModVersion&gt; 一致，由 scripts/verify.mjs 钉死。</summary>
-        public const string kVersion = "0.1.0";
+        public const string kVersion = "0.3.0";
 
         public const string MOD_NAME = nameof(BlueprintHub);
 
@@ -45,13 +45,22 @@ namespace BlueprintHub
             m_Setting = new BlueprintHubSetting(this);
             BlueprintHubSetting.Instance = m_Setting;
 
-            // 词条必须先注册：没有它，自动生成的设置页只能显示英文属性名（需求 7 那一页要中文）
+            // 词条必须先注册：没有它，自动生成的设置页只能显示英文属性名，面板更是只能拿到键名。
+            // 两份源分开：① 选项页（键名要 setting 实例算）② 面板（键名走 BridgeTheLanguageGap 认得的形状）。
             try
             {
+                string active = "en-US";
+                try { active = GameManager.instance.localizationManager.activeLocaleId ?? "en-US"; }
+                catch (Exception ex) { log.Warn("activeLocaleId: " + ex.GetType().Name); }
+                LocaleTable.SetActiveLocale(active);
+
                 string[] locales = LocaleTable.Locales;
                 for (int i = 0; i < locales.Length; i++)
+                {
                     GameManager.instance.localizationManager.AddSource(locales[i], new LocaleSource(m_Setting, locales[i]));
-                log.Info("选项页词条已注册：" + locales.Length + " 个语言");
+                    GameManager.instance.localizationManager.AddSource(locales[i], new PanelLocaleSource(locales[i]));
+                }
+                log.Info("词条已注册：" + locales.Length + " 个语言 × 2 份源，当前语言 " + active);
             }
             catch (Exception ex) { log.Warn("Locale register failed: " + ex.GetType().Name); }
 

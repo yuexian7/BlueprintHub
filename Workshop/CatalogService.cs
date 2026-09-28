@@ -25,7 +25,10 @@ namespace BlueprintHub.Workshop
         public int Seq { get; private set; }
 
         public string Status { get; private set; }        // loading | ready | empty | error
-        public string StatusText { get; private set; }
+        /// <summary>面板词条 slug（句子由游戏本地化词典出，见 Locale.BuildPanelMap）。</summary>
+        public string StatusSlug { get; private set; }
+        /// <summary>排障用的一行技术信息：不带语气词，只写「哪个镜像、什么码、什么异常」，任何语言都读得懂。</summary>
+        public string StatusDetail { get; private set; }
         public bool Busy { get; private set; }
 
         public BrowseKit.Meta Meta { get; private set; }
@@ -85,7 +88,8 @@ namespace BlueprintHub.Workshop
             if (Meta == null)
             {
                 Status = STATUS_LOADING;
-                StatusText = "正在读取工坊索引…";
+                StatusSlug = "STATUS_LOADING";
+                StatusDetail = "catalog/index.json";
             }
             Busy = true;
             Bump();
@@ -101,7 +105,7 @@ namespace BlueprintHub.Workshop
             catch (Exception ex)
             {
                 BlueprintHubMod.log.Warn("CatalogService.Run: " + ex.GetType().Name + " " + ex.Message);
-                if (token == Volatile.Read(ref _reloadToken)) Fail("工坊读取失败：" + ex.GetType().Name);
+                if (token == Volatile.Read(ref _reloadToken)) Fail("ERR_TITLE", ex.GetType().Name);
             }
             finally
             {
@@ -119,14 +123,14 @@ namespace BlueprintHub.Workshop
             if (token != Volatile.Read(ref _reloadToken)) return;
             if (string.IsNullOrEmpty(indexJson))
             {
-                Fail("连不上工坊（三个镜像都没响应）。检查网络后点重试。");
+                Fail("ERR_TITLE", WorkshopClient.MirrorList() + " → no response");
                 return;
             }
             string err;
             BrowseKit.Meta meta = BrowseKit.ParseMeta(indexJson, out err);
             if (meta == null)
             {
-                Fail("工坊索引格式不正确：" + err);
+                Fail("ERR_TITLE", "index.json: " + err);
                 return;
             }
             Meta = meta;
@@ -148,22 +152,21 @@ namespace BlueprintHub.Workshop
                     {
                         // 一页都没有：两种可能 —— 库里真没蓝图（CI 会删空目录），或镜像/网络坏了。
                         // 用 index.json 的 total 判定（categories 里有 pages 汇总），不猜。
-                        if (TotalPagesInIndex(meta) == 0) Set(STATUS_EMPTY, "工坊还没有蓝图。", acc);
-                        else Fail("读取蓝图列表失败（索引说有内容，但列表页拿不到）。");
+                        if (TotalPagesInIndex(meta) == 0) Set(STATUS_EMPTY, "EMPTY_TITLE", acc);
+                        else Fail("ERR_TITLE", "index says pages>0 but catalog/all/p1.json is empty");
                         return;
                     }
                     break;                                              // 后面的页缺就当截断
                 }
                 JsonValue root = BrowseKit.ParsePageRoot(text);
-                if (root == null) { Fail("蓝图列表页解析失败。"); return; }
+                if (root == null) { Fail("ERR_TITLE", "catalog/all/p" + p + ".json: bad json"); return; }
                 foreach (JsonValue it in root.Arr("items").A()) acc.Add(BrowseKit.ParseItem(it));
                 pages = Math.Max(pages, BrowseKit.PageCountOf(root, meta.PageSize));
                 if (p == 1) Set(STATUS_READY, "", acc);                  // 首屏先渲染
             }
             if (token != Volatile.Read(ref _reloadToken)) return;
             Truncated = pages > BrowseKit.MAX_ALL_PAGES;
-            Set(acc.Count == 0 ? STATUS_EMPTY : STATUS_READY,
-                acc.Count == 0 ? "工坊还没有蓝图。" : "", acc);
+            Set(acc.Count == 0 ? STATUS_EMPTY : STATUS_READY, "EMPTY_TITLE", acc);
         }
 
         private static int TotalPagesInIndex(BrowseKit.Meta meta)
@@ -173,18 +176,20 @@ namespace BlueprintHub.Workshop
             return sum;
         }
 
-        private void Set(string status, string text, List<ListItem> items)
+        private void Set(string status, string slug, List<ListItem> items)
         {
             lock (s_gate) _allItems = items;
             Status = status;
-            StatusText = text ?? string.Empty;
+            StatusSlug = status == STATUS_EMPTY ? "EMPTY_TITLE" : (slug ?? string.Empty);
+            if (status != STATUS_EMPTY) StatusDetail = string.Empty;
             Recompute();
         }
 
-        private void Fail(string text)
+        private void Fail(string slug, string detail)
         {
             Status = STATUS_ERROR;
-            StatusText = text;
+            StatusSlug = slug ?? "ERR_TITLE";
+            StatusDetail = detail ?? string.Empty;
             Bump();
         }
 

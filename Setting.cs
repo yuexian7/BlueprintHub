@@ -31,8 +31,8 @@ namespace BlueprintHub
 
         public static BlueprintHubSetting Instance;
 
-        /// <summary>面板透明度热路径镜像（UI 每帧读它，不走属性链 —— Playbook 硬规则 15）。</summary>
-        public static volatile float s_PanelOpacity = 0.5f;
+        /// <summary>面板透明度热路径镜像（0~1；UI 每帧读它，不走属性链 —— Playbook 硬规则 15）。</summary>
+        public static volatile float s_PanelOpacity = 0.8f;
 
         /// <summary>
         /// 入口按钮上显示的那个键名（「蓝图工坊  K」这种）。没设键就是空串，前端就不画那一格。
@@ -40,7 +40,7 @@ namespace BlueprintHub
         /// </summary>
         public static string BoundKeyText = string.Empty;
 
-        private float m_PanelOpacity = 0.5f;
+        private float m_PanelOpacity = 0.8f;
 
 #nullable enable
         private ProxyBinding m_TogglePanel;
@@ -52,13 +52,13 @@ namespace BlueprintHub
         }
 
         // ---------- 模组 ----------
-        /// <summary>真值属性：选项页上出现的只有下面那根滑条（一个设置出现两行是常见的抄错误）。</summary>
+        /// <summary>真值属性（0~1）：选项页上出现的只有下面那根滑条（一个设置出现两行是常见的抄错误）。</summary>
         public float PanelOpacity
         {
             get { return m_PanelOpacity; }
             set
             {
-                float v = Clamp01(value);
+                float v = ClampOpacity(value);
                 if (Math.Abs(v - m_PanelOpacity) < 0.0001f) return;
                 m_PanelOpacity = v;
                 s_PanelOpacity = v;
@@ -66,8 +66,15 @@ namespace BlueprintHub
         }
 
         [SettingsUISection(kTabMod, kGroupPanel)]
-        // scalarMultiplier=100：内部存 0.2~1，显示 20%~100%（字段名 FACT：research/api-SettingsUI.txt:220）
-        [SettingsUISlider(min = 0.2f, max = 1f, step = 0.05f, unit = "%", scalarMultiplier = 100f, scaleDragVolume = true)]
+        // 机器证据（0.2.0 那次「透明度完全没生效」的真因）：
+        //   Game.UI.Menu.AutomaticSettings 给 FloatSlider 装的 accessor 是
+        //     getter:  property * scalarMultiplier   ← 交给界面显示
+        //     setter:  property = uiValue / scalarMultiplier
+        //   而 min / max / step 是**原样**塞给界面的（不乘 scalarMultiplier）。
+        //   上一版写的是 min=0.2,max=1,step=0.05 配 scalarMultiplier=100 —— 界面看到「值 20~100、量程 0.2~1」，
+        //   滑块直接顶到量程外，拖到哪都只回写 [0.002,0.01]，再被下限夹住 → 数值永远不变。
+        // 现在与游戏自己的 InterfaceSettings.interfaceTransparency 逐字段一致（decompiled/Game/Settings/InterfaceSettings.cs:123）。
+        [SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentage", scalarMultiplier = 100f)]
         public float PanelOpacitySlider
         {
             get { return PanelOpacity; }
@@ -145,15 +152,23 @@ namespace BlueprintHub
 
         public override void SetDefaults()
         {
-            m_PanelOpacity = 0.5f;              // 需求 1：默认 50%
-            s_PanelOpacity = 0.5f;
+            m_PanelOpacity = 0.8f;              // 需求 2：50% 太透，默认改 80%
+            s_PanelOpacity = 0.8f;
             // 目前没有需要重置的二次确认类设置（见上面 M4 那条注释）
         }
 
-        private static float Clamp01(float v)
+        /// <summary>
+        /// 0~1，NaN/无穷回默认值。读旧存档时顺手认一次「显示刻度」：
+        /// 0.2.0 那版滑条量程算错过（见 PanelOpacitySlider 上方注释），万一盘里存的是 20~100 这种值，
+        /// 直接夹会变成 100%，除以 100 才是玩家当时想调的那一档。
+        /// </summary>
+        private static float ClampOpacity(float v)
         {
-            if (float.IsNaN(v) || float.IsInfinity(v)) return 0.5f;
-            return v < 0.2f ? 0.2f : (v > 1f ? 1f : v);
+            if (float.IsNaN(v) || float.IsInfinity(v)) return 0.8f;
+            if (v > 1.01f) v /= 100f;
+            if (v < 0f) return 0f;
+            if (v > 1f) return 1f;
+            return v;
         }
     }
 }

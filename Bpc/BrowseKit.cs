@@ -251,7 +251,63 @@ namespace BlueprintHub.Bpc
             public int SearchHits;
         }
 
-        // ---------- 展示文案（中文先内嵌，M5 换词条）----------
+        // ---------- 展示文案 ----------
+        // 0.3.0 的分工：桥层往面板发的是**数据 + 词条键**，句子归游戏本地化词典（见 Locale.BuildPanelMap）。
+        // 下面这几个 `*Value` 只负责「把数算成一条与语言无关的数字串」（千分位用不变文化、小数点用句点），
+        // 前端把它塞进模板的 {tiles} / {wan} / {km2} / {m2} 占位符。
+        // 原来那几个 *Zh 函数保留：它们是这套算法的参照实现，T3 用「同一条输入必须推出同一句文案」把两边钉在一起。
+
+        /// <summary>区块数（不带单位）：整块不写小数，非整块写一位，≥100 不带小数。</summary>
+        public static string TilesValue(long areaM2, double tileAreaM2)
+        {
+            double t = tileAreaM2 > 0 ? areaM2 / tileAreaM2 : 0d;
+            if (t >= 100d) return t.ToString("F0", CultureInfo.InvariantCulture);
+            if (Math.Abs(t - Math.Round(t)) < 0.05d) return ((long)Math.Round(t)).ToString(CultureInfo.InvariantCulture);
+            return t.ToString("0.#", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>以 万㎡ 为单位、不带单位词的数字串（中文模板用）。</summary>
+        public static string WanValue(long areaM2)
+        {
+            if (areaM2 < 10000L) return areaM2.ToString("N0", CultureInfo.InvariantCulture);
+            return (areaM2 / 10000d).ToString(areaM2 % 10000L == 0L ? "0" : "0.#", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>以 km² 为单位、不带单位词的数字串（英文模板用；小于 0.1 km² 退回 ㎡ 由模板自己选）。</summary>
+        public static string Km2Value(long areaM2)
+        {
+            double km2 = areaM2 / 1000000d;
+            if (km2 < 0.1d) return km2.ToString("0.00", CultureInfo.InvariantCulture);
+            return km2.ToString("0.#", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>完整 ㎡ 数字串（带不变文化千分位）。</summary>
+        public static string M2Value(long areaM2)
+        {
+            return areaM2.ToString("N0", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// 相对时间的**档位**（数据版）：unit ∈ now / min / hour / day / month / year。
+        /// 判据与 <see cref="RelativeTimeZh"/> 逐条一致，T3 里两边互推；未来时间一律 now（不许出现「-3 天前」）。
+        /// 解析失败返回 false —— 前端就没有时间可显示。
+        /// </summary>
+        public static bool AgoParts(string iso, DateTime nowUtc, out string unit, out int n)
+        {
+            unit = "now"; n = 0;
+            DateTime t;
+            if (!TryParseIso(iso, out t)) return false;
+            TimeSpan d = nowUtc.ToUniversalTime() - t.ToUniversalTime();
+            if (d.TotalMinutes < 0d) d = TimeSpan.Zero;
+            if (d.TotalMinutes < 1d) { unit = "now"; n = 0; return true; }
+            if (d.TotalHours < 1d) { unit = "min"; n = (int)d.TotalMinutes; return true; }
+            if (d.TotalDays < 1d) { unit = "hour"; n = (int)d.TotalHours; return true; }
+            if (d.TotalDays < 30d) { unit = "day"; n = (int)d.TotalDays; return true; }
+            if (d.TotalDays < 365d) { unit = "month"; n = (int)(d.TotalDays / 30d); return true; }
+            unit = "year"; n = (int)(d.TotalDays / 365d);
+            return true;
+        }
+
         /// <summary>完整面积（详情页 / tooltip 用）：「8 区块 · 3,105,032 ㎡」。</summary>
         public static string AreaTextFull(long areaM2, double tileAreaM2)
         {

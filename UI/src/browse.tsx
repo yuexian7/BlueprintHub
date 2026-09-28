@@ -1,24 +1,26 @@
 import React, { useEffect, useRef, useState } from "react";
 import { C, IconArea, IconDownload, IconHeart, IconSearch, IconSpinner, IconWarning } from "./icons";
-import { avatarColor, CAT_COLOR, cmd, ItemCard, Option, placeholderCover, UiState } from "./api";
+import { areaArgs, areaSlugFor, avatarColor, CAT_COLOR, cmd, ItemCard, Option, placeholderCover, UiState } from "./api";
+import { LArgs, Translate, prettyCount } from "./l10n";
 
 /**
- * 浏览区（需求 2 + 需求 3）。所有筛选/排序/翻页都只发一条 Cmd 给 C#，
- * 面板自己不持有任何列表状态 —— C# 是唯一真值源，重开面板也一定是同一个视图。
+ * 浏览区。两条纪律：
+ *  · 所有筛选/排序/翻页只发一条 Cmd 给 C#，面板自己不持有任何列表状态（C# 是唯一真值源，重开面板一定是同一个视图）。
+ *  · 句子和单位词一律来自 t(slug)（游戏本地化词典），本文件里**一个玩家可见的中英文字都不许出现**。
  */
 
-export const SideBar = ({ st }: { st: UiState }) => (
+export const SideBar = ({ st, t }: { st: UiState; t: Translate }) => (
   <div className="bph-side">
-    <div className="bph-side-h">社区类型</div>
+    <div className="bph-side-h">{t("TYPE_TITLE")}</div>
     {st.categories.map((cat) => (
       <div
         key={cat.id}
         className={"bph-cat" + (cat.selected ? " bph-cat-on" : "")}
-        title={cat.definition}
+        title={t(cat.descSlug)}
         onClick={() => cmd("cat", cat.id)}
       >
         <span className="bph-cat-dot" style={{ background: CAT_COLOR[cat.id] || C.accent }} />
-        <span className="bph-cat-name">{cat.label}</span>
+        <span className="bph-cat-name">{cat.slug ? t(cat.slug) : cat.label}</span>
         <span className="bph-cat-n">{cat.count > 0 ? String(cat.count) : ""}</span>
       </div>
     ))}
@@ -32,12 +34,13 @@ const Chevron = () => (
 );
 
 export const Dropdown = ({
-  label, current, options, onPick,
+  label, current, options, onPick, t,
 }: {
   label: string;
   current: string;
   options: Option[];
   onPick: (id: string) => void;
+  t: Translate;
 }) => {
   const [open, setOpen] = useState(false);
   const active = options.filter((o) => o.id === current)[0] || options[0];
@@ -45,7 +48,7 @@ export const Dropdown = ({
     <div className="bph-drop">
       <div className="bph-drop-btn" onClick={() => setOpen(!open)}>
         <span className="bph-drop-cur">{label}</span>
-        <span>{active ? active.label : ""}</span>
+        <span>{active ? (active.slug ? t(active.slug) : active.label) : ""}</span>
         <Chevron />
       </div>
       {open ? (
@@ -62,7 +65,7 @@ export const Dropdown = ({
                 className={"bph-drop-item" + (o.id === current ? " bph-drop-item-on" : "")}
                 onClick={() => { setOpen(false); onPick(o.id); }}
               >
-                {o.label}
+                {o.slug ? t(o.slug) : o.label}
               </div>
             ))}
           </div>
@@ -72,7 +75,7 @@ export const Dropdown = ({
   );
 };
 
-export const MenuBar = ({ st }: { st: UiState }) => {
+export const MenuBar = ({ st, t }: { st: UiState; t: Translate }) => {
   const m = st.menu!;
   const [text, setText] = useState(m.search);
   const timer = useRef<number | null>(null);
@@ -88,59 +91,70 @@ export const MenuBar = ({ st }: { st: UiState }) => {
 
   return (
     <div className="bph-menu">
-      <span className="bph-tile">{m.tileHint}</span>
-      <span className="bph-goto">· 面积越大套用越久</span>
+      <span className="bph-tile">{t("TILE_HINT", { tilem2: st.tileM2 || "388,129" })}</span>
       <div className="bph-search">
         <IconSearch size={15} />
         <input
           type="text"
           value={text}
-          placeholder="搜索蓝图名称 / 作者 / 描述"
+          placeholder={t("SEARCH_PLACEHOLDER")}
           onChange={(e) => { setText(e.target.value); push(e.target.value); }}
         />
       </div>
       <div className="bph-spacer" />
-      <Dropdown label="面积" current={m.area} options={m.areas} onPick={(id) => cmd("area", id)} />
-      <Dropdown label="排序" current={m.sort} options={m.sorts} onPick={(id) => cmd("sort", id)} />
+      <Dropdown label={t("AREA_TITLE")} current={m.area} options={m.areas} onPick={(id) => cmd("area", id)} t={t} />
+      <Dropdown label={t("SORT_TITLE")} current={m.sort} options={m.sorts} onPick={(id) => cmd("sort", id)} t={t} />
     </div>
   );
 };
 
-export const Card = ({ it }: { it: ItemCard }) => {
+/** 相对时间：档位与数字由 C# 算（BrowseKit.AgoParts，离线测过），这里只把词交给词典。 */
+const agoText = (t: Translate, it: ItemCard): string => {
+  if (!it.agoUnit) return "";
+  const args: LArgs = { n: it.agoN };
+  return t("AGO_" + it.agoUnit.toUpperCase(), args);
+};
+
+export const Card = ({ it, t, lang }: { it: ItemCard; t: Translate; lang: string }) => {
   const cover = it.cover || placeholderCover(it.cats || "", it.id);
   const catColor = CAT_COLOR[((it.cats || "").split(",")[0] || "").trim()] || C.accent;
+  const areaText = t(areaSlugFor(it), areaArgs(it));
+  const nick = it.author || t("ANONYMOUS");
   return (
     <div className="bph-card" onClick={() => cmd("detail", it.id)}>
       <div className="bph-cover">
         <img src={cover} alt="" />
         <span className="bph-catbar" style={{ background: catColor }} />
         <div className="bph-strip">
-          <span className="bph-area" title={it.areaFull || it.areaText}>{it.areaText}</span>
+          <span className="bph-area" title={it.m2 + " ㎡"}>{areaText}</span>
           <div className={"bph-stat" + (it.liked ? " bph-stat-on" : "")}
-            title={it.liked ? "已经点过一次：每张蓝图只能加一次" : "点赞"}
+            title={it.liked ? t("CARD_LIKED_TIP") : t("CARD_LIKE_TIP")}
             onClick={(e) => { e.stopPropagation(); cmd("like", it.id); }}>
             <IconHeart size={13} color={it.liked ? C.voted : C.like} filled={it.liked} />
-            <span className="bph-stat-n" style={{ color: it.liked ? C.voted : "#dbe6f0" }}>{it.likesText}</span>
+            <span className="bph-stat-n" style={{ color: it.liked ? C.voted : "#dbe6f0" }}>{pretty(it.likes, lang)}</span>
           </div>
           <div className={"bph-stat" + (it.used ? " bph-stat-on" : "")}
-            title={it.used ? "已经记过一次" : "套用次数"}
+            title={it.used ? t("CARD_USED_TIP") : t("CARD_USE_TIP")}
             onClick={(e) => { e.stopPropagation(); cmd("dl", it.id); }}>
             <IconDownload size={13} color={it.used ? C.voted : C.download} />
-            <span className="bph-stat-n" style={{ color: it.used ? C.voted : "#dbe6f0" }}>{it.downloadsText}</span>
+            <span className="bph-stat-n" style={{ color: it.used ? C.voted : "#dbe6f0" }}>{pretty(it.downloads, lang)}</span>
           </div>
         </div>
       </div>
-      <div className="bph-name">{it.name}</div>
+      <div className="bph-name" title={it.desc || it.name}>{it.name}</div>
       <div className="bph-meta">
         <span className="bph-mini-av" style={{ background: avatarColor(it.authorId || it.author) }}>
-          <span className="bph-mini-txt">{(it.author || "?").substr(0, 1).toUpperCase()}</span>
+          <span className="bph-mini-txt">{nick.substr(0, 1).toUpperCase()}</span>
         </span>
-        <span className="bph-by">{it.author}</span>
-        <span className="bph-when">{it.updated}</span>
+        <span className="bph-by">{nick}</span>
+        <span className="bph-when">{agoText(t, it)}</span>
       </div>
     </div>
   );
 };
+
+// 计数缩写（原版 UI 同口径）
+const pretty = (n: number, lang: string): string => prettyCount(n, lang);
 
 const PageCell = ({ n, cur, onGo }: { n: number; cur: number; onGo: (n: number) => void }) => (
   <div className={"bph-pg" + (n === cur ? " bph-pg-on" : "")} onClick={() => onGo(n)}>{String(n)}</div>
@@ -155,7 +169,7 @@ const Arrow = ({ left, off, onGo }: { left: boolean; off: boolean; onGo: () => v
   </div>
 );
 
-export const Pager = ({ st }: { st: UiState }) => {
+export const Pager = ({ st, t }: { st: UiState; t: Translate }) => {
   const m = st.menu!;
   if (m.pages <= 0) return null;
   const cells: number[] = [];
@@ -171,20 +185,21 @@ export const Pager = ({ st }: { st: UiState }) => {
       {cells.map((n) => <PageCell key={n} n={n} cur={m.page} onGo={(v) => cmd("page", v)} />)}
       <Arrow left={false} off={m.page >= m.pages} onGo={() => cmd("page", m.page + 1)} />
       <span className="bph-count">
-        共 {m.total} 张{st.truncated ? "（工坊条目过多，面板只取前 300 张）" : ""}
+        {t("PAGER_TOTAL", { total: m.total })}
+        {st.truncated ? " · " + t("TRUNC_NOTE", { max: st.maxItems || 300 }) : ""}
       </span>
     </div>
   );
 };
 
-/** 四态：加载中 / 库里没东西 / 条件太严 / 网络或校验失败。需求 6「报错一定要有提示」。 */
-export const StateArea = ({ st }: { st: UiState }) => {
+/** 四态：加载中 / 库里没东西 / 条件太严 / 网络或校验失败。报错一定要给一句人话 + 一行技术信息 + 一个能按的按钮。 */
+export const StateArea = ({ st, t }: { st: UiState; t: Translate }) => {
   if (st.status === "loading") {
     return (
       <div className="bph-state">
         <div className="bph-spin"><IconSpinner size={44} /></div>
-        <div className="bph-state-t">正在读取工坊…</div>
-        <div className="bph-state-s">{st.statusText || "首次打开要拉索引与列表，之后走本地缓存。"}</div>
+        <div className="bph-state-t">{t("STATUS_LOADING")}</div>
+        {st.statusDetail ? <div className="bph-state-s">{st.statusDetail}</div> : null}
       </div>
     );
   }
@@ -192,10 +207,10 @@ export const StateArea = ({ st }: { st: UiState }) => {
     return (
       <div className="bph-state">
         <IconWarning size={40} color={C.danger} />
-        <div className="bph-state-t" style={{ color: "#ffd9da" }}>工坊连接失败</div>
-        <div className="bph-state-s">{st.statusText}</div>
+        <div className="bph-state-t">{t(st.statusSlug || "ERR_TITLE")}</div>
+        {st.statusDetail ? <div className="bph-state-tech">{st.statusDetail}</div> : null}
         <div className="bph-btn-row">
-          <div className="bph-btn bph-btn-warn" onClick={() => cmd("retry")}>重试</div>
+          <div className="bph-btn bph-btn-warn" onClick={() => cmd("retry")}>{t("BTN_RETRY")}</div>
         </div>
       </div>
     );
@@ -204,40 +219,37 @@ export const StateArea = ({ st }: { st: UiState }) => {
     return (
       <div className="bph-state">
         <IconArea size={40} color={C.dim} />
-        <div className="bph-state-t">工坊里还没有蓝图</div>
-        <div className="bph-state-s">
-          v0.1.0 的上传走「游戏内导出 → 向工坊仓库提 PR」：作者在游戏里把一块市辖区导出成蓝图目录，
-          提交后经自动校验通过，就会出现在这个列表里。
-        </div>
+        <div className="bph-state-t">{t("EMPTY_TITLE")}</div>
+        <div className="bph-state-s">{t("EMPTY_HINT")}</div>
       </div>
     );
   }
   return (
     <div className="bph-state">
       <IconSearch size={34} color={C.dim} />
-      <div className="bph-state-t">没有符合条件的蓝图</div>
-      <div className="bph-state-s">换个关键词，或者把面积筛选恢复成「全部」。</div>
+      <div className="bph-state-t">{t("NORESULT_TITLE")}</div>
+      <div className="bph-state-s">{t("NORESULT_HINT")}</div>
       <div className="bph-btn-row">
-        <div className="bph-btn" onClick={() => { cmd("search", ""); cmd("area", "all"); }}>清空筛选</div>
+        <div className="bph-btn" onClick={() => { cmd("search", ""); cmd("area", "all"); }}>{t("BTN_CLEAR")}</div>
       </div>
     </div>
   );
 };
 
-export const BrowseBody = ({ st }: { st: UiState }) => (
+export const BrowseBody = ({ st, t }: { st: UiState; t: Translate }) => (
   <div className="bph-body">
-    <SideBar st={st} />
+    <SideBar st={st} t={t} />
     <div className="bph-main">
-      <MenuBar st={st} />
+      <MenuBar st={st} t={t} />
       {st.status === "ready" && st.items.length > 0 ? (
         <>
           <div className="bph-grid">
-            {st.items.map((it) => <Card key={it.id} it={it} />)}
+            {st.items.map((it) => <Card key={it.id} it={it} t={t} lang={st.lang} />)}
           </div>
-          <Pager st={st} />
+          <Pager st={st} t={t} />
         </>
       ) : (
-        <StateArea st={st} />
+        <StateArea st={st} t={t} />
       )}
     </div>
   </div>

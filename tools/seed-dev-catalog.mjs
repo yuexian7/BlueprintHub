@@ -10,9 +10,12 @@
  * 这样数据面格式一改，这个脚本要么一起对、要么立刻报错，不存在「开发机能跑、线上不能跑」的漂移。
  *
  * 用法：
- *   node tools/seed-dev-catalog.mjs              # 生成 18 张假蓝图（够撑 2 页）
- *   node tools/seed-dev-catalog.mjs --items 40
- *   node tools/seed-dev-catalog.mjs --clean      # 删掉 dev-catalog，回到走真实网络
+ *   node tools/seed-dev-catalog.mjs --clean                 # 删掉 dev-catalog，回到真实数据
+ *   node tools/seed-dev-catalog.mjs --yes-dev-data          # 明确要造 18 张假蓝图才造
+ *   node tools/seed-dev-catalog.mjs --yes-dev-data --items 40
+ * 0.3.0 起必须带 --yes-dev-data：工坊里的真蓝图由玩家自己上传，
+ * 任何「面板里凭空多出一堆模板」的状态都只允许是开发者显式按开关造出来的。
+ * 面板在这种情况下会在顶栏挂 DEV_TAG（测试数据）标签，绝不会与真实条目混淆。
  * 环境变量 BLUEPRINTHUB_WORKSHOP 可指 workshop 仓库位置（默认 ../blueprinthub-workshop）。
  */
 import { spawnSync } from "node:child_process";

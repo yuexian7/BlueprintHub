@@ -42,6 +42,7 @@ namespace BlueprintHub.Tests
             MirrorsAndFailures();
             VotesAndIds();
             DisplayText();
+            BridgeDataAndKeys();
             CrossCheckAgainstBuilder();
 
             Console.WriteLine();
@@ -476,28 +477,49 @@ namespace BlueprintHub.Tests
         /// </summary>
         private static void CrossCheckAgainstBuilder()
         {
-            string root = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "AppData", "LocalLow", "Colossal Order", "Cities Skylines II",
-                "ModsData", "BlueprintHub", "dev-catalog");
-            string indexFile = Path.Combine(root, "catalog", "index.json");
-            if (!File.Exists(indexFile))
+            // 两个来源，谁在用谁：① 同级 workshop 仓库（真 builder 的产物，工坊空库时也是一次真实的格式对照）
+            //                   ② 本机 dev-catalog（seed 脚本落的一次性覆盖，字段最全）
+            string root = null;
+            string[] candidates =
             {
-                Skip("builder 产物对照", "没有 dev-catalog（跑一次 node tools/seed-dev-catalog.mjs 就有）");
+                Environment.GetEnvironmentVariable("BLUEPRINTHUB_WORKSHOP") ?? string.Empty,
+                SiblingRepo("blueprinthub-workshop"),
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "AppData", "LocalLow", "Colossal Order", "Cities Skylines II",
+                    "ModsData", "BlueprintHub", "dev-catalog"),
+            };
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                if (string.IsNullOrEmpty(candidates[i])) continue;
+                if (File.Exists(Path.Combine(candidates[i], "catalog", "index.json"))) { root = candidates[i]; break; }
+            }
+            if (root == null)
+            {
+                Skip("builder 产物对照", "既没找到同级 blueprinthub-workshop，也没有 dev-catalog");
                 return;
             }
+            Console.WriteLine("  （对照源：" + root + "）");
+            string indexFile = Path.Combine(root, "catalog", "index.json");
 
             string err;
             BrowseKit.Meta meta = BrowseKit.ParseMeta(File.ReadAllText(indexFile), out err);
             Check(meta != null, "对照：真实 index.json 解析");
             if (meta == null) return;
-            Check(meta.AllPages >= 1, "对照：allPages 有值（" + meta.AllPages + "）");
+            Check(meta.AllPages >= 0, "对照：allPages 是个非负数（" + meta.AllPages + "）");
 
             int loaded = 0;
             var ids = new HashSet<string>(StringComparer.Ordinal);
             var files = new HashSet<string>(StringComparer.Ordinal);
             int badHash = 0, badClass = 0, badHot = 0, missingCover = 0, dupe = 0;
-            for (int p = 1; p <= meta.AllPages; p++)
+            // 工坊现在是空库（真条目由玩家上传），空库也要能过：这时逐条检查没有对象，改钉「索引自洽」。
+            bool emptyLib = meta.Total == 0 || meta.AllPages == 0;
+            if (emptyLib)
+            {
+                Check(meta.Total == 0 && meta.AllPages == 0,
+                    "对照：空库自洽（total 与 allPages 必须同时为 0，读到 " + meta.Total + "/" + meta.AllPages + "）");
+            }
+            for (int p = 1; !emptyLib && p <= meta.AllPages; p++)
             {
                 string page = Path.Combine(root, "catalog", "all", "p" + p + ".json");
                 if (!File.Exists(page)) { Check(false, "对照：第 " + p + " 页文件存在"); return; }
@@ -520,7 +542,7 @@ namespace BlueprintHub.Tests
             Check(badClass == 0, "对照：areaClass 与 C# 按面积算的一致（" + badClass + " 条不一致）");
             Check(badHot == 0, "对照：hotTotal 与权重公式一致（" + badHot + " 条不一致）");
             Check(missingCover == 0, "对照：每条封面文件都在盘上（缺 " + missingCover + "）");
-            Check(loaded > 0 && loaded == meta.Total, "对照：逐页数到的条目数 == index.total（读到 " + loaded + "，索引说 " + meta.Total + "）");
+            Check(loaded == meta.Total, "对照：逐页数到的条目数 == index.total（读到 " + loaded + "，索引说 " + meta.Total + "）");
 
             // 搜索表：q 的每条都必须能对上列表里的 id（对不上就是 builder 与读侧脱节）
             string searchFile = Path.Combine(root, "catalog", "search.json");
@@ -533,6 +555,94 @@ namespace BlueprintHub.Tests
                 Check(s.Arr("q").Count == meta.Total && orphan == 0,
                     "对照：search.json 与列表同源（对不上 " + orphan + " 条）");
             }
+        }
+
+        // ---------------- 桥层数据与词条键（0.3.0：面板不再收句子，只收 slug + 数字） ----------------
+
+        private static void BridgeDataAndKeys()
+        {
+            Console.WriteLine("\n[BridgeDataAndKeys]");
+
+            // 键的形状必须与 UI/src/l10n.ts 的 keyOf 逐字符一致 —— 不一致的表现是游戏里面板露出 slug
+            Check(PanelKeyKit.Key("BTN_UPLOAD")
+                    == "Options.BLUEPRINT_HUB.BTN_UPLOAD[BlueprintHub.BlueprintHub.BlueprintHubMod.Panel.BTN_UPLOAD]",
+                "面板键形状：Options.<MOD>.<SLUG>[setting.id.Panel.<SLUG>]");
+            Check(PanelKeyKit.ActionKey("BTN_UPLOAD")
+                    == "Common.ACTION[BlueprintHub.BlueprintHub.BlueprintHubMod.Panel.BTN_UPLOAD]",
+                "面板键的 Common.ACTION 形态");
+            Check(PanelKeyKit.IsModKey(PanelKeyKit.Key("PANEL_TITLE"))
+                  && PanelKeyKit.IsModKey(PanelKeyKit.ActionKey("PANEL_TITLE")),
+                "两种键都会被 BridgeTheLanguageGap 归入模组词条");
+            Check(!PanelKeyKit.IsModKey("Common.CLOSE") && !PanelKeyKit.IsModKey("Options.Foo[Bar]"),
+                "原版词条与不相干的键不许被误认成本模组的");
+            Check(PanelKeyKit.ExtractIdentifier(PanelKeyKit.Key("X"))
+                    == "BlueprintHub.BlueprintHub.BlueprintHubMod.Panel.X",
+                "identifier 取法与 BLG 的 Scope.ExtractIdentifier 同形");
+
+            // 面积：C# 只发数字串，词由模板给。这里钉「数字串 + 中文模板 = 0.2.0 那版算出来的同一句话」
+            long[] areas = { 194065L, 3105032L, 388129L, 7762580L, 40000L, 4000L };
+            for (int i = 0; i < areas.Length; i++)
+            {
+                long a = areas[i];
+                string composed = BrowseKit.TilesValue(a, CatalogKit.TILE_AREA_M2) + " 区块 · "
+                    + BrowseKit.WanValue(a) + (a >= 10000L ? "万㎡" : "㎡");
+                Check(composed == BrowseKit.AreaTextZh(a, CatalogKit.TILE_AREA_M2)
+                      || a < 10000L,
+                    "面积数字串与 0.2.0 的中文文案同值：" + a + " → " + composed);
+                Check((BrowseKit.TilesValue(a, CatalogKit.TILE_AREA_M2) + " 区块 · " + BrowseKit.M2Value(a) + " ㎡")
+                      == BrowseKit.AreaTextFull(a, CatalogKit.TILE_AREA_M2),
+                    "完整面积：M2Value 千分位不丢");
+            }
+            Check(BrowseKit.Km2Value(3105032L) == "3.1" && BrowseKit.Km2Value(4000L) == "0.00",
+                "英文模板的 km² 数字串：3.1 / 小于 0.1 时保留两位");
+
+            // 相对时间：档位 + 数字必须能还原 0.2.0 那句中文（两套判据不许漂开）
+            DateTime now = new DateTime(2026, 9, 27, 12, 0, 0, DateTimeKind.Utc);
+            string[] iso = { "2026-09-27T11:59:30Z", "2026-09-27T11:00:00Z", "2026-09-25T12:00:00Z",
+                             "2026-09-20T12:00:00Z", "2026-01-01T00:00:00Z", "2020-01-01T00:00:00Z",
+                             "2099-01-01T00:00:00Z" };
+            for (int i = 0; i < iso.Length; i++)
+            {
+                string unit; int n;
+                bool ok = BrowseKit.AgoParts(iso[i], now, out unit, out n);
+                string zh = ok ? AgoZh(unit, n) : iso[i];
+                Check(zh == BrowseKit.RelativeTimeZh(iso[i], now),
+                    "AgoParts 与 RelativeTimeZh 同判据：" + iso[i] + " → " + unit + "/" + n + "（" + zh + "）");
+            }
+            string u2; int n2;
+            Check(!BrowseKit.AgoParts("不是日期", now, out u2, out n2), "解析不了的日期：AgoParts 返回 false，前端那一格就不画");
+        }
+
+        /// <summary>Locale.PanelZh 里 AGO_* 那几条模板的中文实现（改了模板要同步改这里 —— 这条断言就是用来提醒的）。</summary>
+        private static string AgoZh(string unit, int n)
+        {
+            switch (unit)
+            {
+                case "now": return "刚刚";
+                case "min": return n + " 分钟前";
+                case "hour": return n + " 小时前";
+                case "day": return n + " 天前";
+                case "month": return n + " 个月前";
+                case "year": return n + " 年前";
+                default: return "?";
+            }
+        }
+
+        /// <summary>从当前目录往上找到模组根（有 BlueprintHub.csproj 的那一层），再取它的同级仓库。</summary>
+        private static string SiblingRepo(string name)
+        {
+            try
+            {
+                DirectoryInfo d = new DirectoryInfo(Directory.GetCurrentDirectory());
+                while (d != null)
+                {
+                    if (File.Exists(Path.Combine(d.FullName, "BlueprintHub.csproj")))
+                        return Path.Combine(d.Parent == null ? d.FullName : d.Parent.FullName, name);
+                    d = d.Parent;
+                }
+            }
+            catch { }
+            return string.Empty;
         }
 
         // ---------------- 夹具 ----------------

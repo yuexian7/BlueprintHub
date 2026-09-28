@@ -14,13 +14,15 @@ using JsonWriter = BlueprintHub.Bpc.JsonWriter;   // Colossal.UI.Binding 里也�
 namespace BlueprintHub.Systems.UI
 {
     /// <summary>
-    /// 面板与 C# 的唯一桥。设计口径（Road Builder 机制分析 §桥接）：**C# 是数据的唯一真值源**，
-    /// 前端只渲染 + 回报动作，所以整块状态压成一条绑定 GetState，前端只有一条命令通道 Cmd。
+    /// 面板与 C# 的唯一桥。两条口径定死了：
+    ///  · **数据口径**：C# 是唯一真值源，整块状态压成一条 GetState（JSON 字符串），前端只有一条命令通道 Cmd。
+    ///  · **文案口径**：本文件不再产出任何句子，只产出「词条 slug + 数字」。句子在游戏本地化词典里
+    ///    （Locale.BuildPanelMap），前端用 cs2/l10n 渲染 —— 这样 BridgeTheLanguageGap 才翻得动面板。
     ///
     /// 线程口径（机器证据，不是猜的）：
     ///  · FACT：Game.UI.UISystemBase 有 AddUpdateBinding(IUpdateBinding)，OnUpdate 在主线程逐个调用 Update()；
     ///  · FACT：GetterValueBinding&lt;T&gt;.Update() 只在「视图 active」时调 getter，值与上次不同才推给 JS。
-    ///  → 所以 getter 每帧都会跑，必须便宜：seq 没变就返回**同一个字符串引用**，比较器用引用相等，零拷贝。
+    ///  → getter 每帧都跑，必须便宜：seq 没变就返回**同一个字符串引用**，比较器用引用相等，零拷贝。
     ///  → 后台线程一律不碰绑定，只 bump CatalogService.Seq。
     /// </summary>
     public sealed partial class BlueprintHubUISystem : UISystemBase
@@ -37,7 +39,7 @@ namespace BlueprintHub.Systems.UI
         private int m_CacheOpacity = -1;
         private string m_CacheJson = string.Empty;
 
-        private string m_Toast = string.Empty;
+        private string m_ToastSlug = string.Empty;
         private string m_ToastKind = "info";
         private float m_ToastUntil;
         private int m_ToastId;
@@ -128,9 +130,10 @@ namespace BlueprintHub.Systems.UI
             s.m_CacheSeq = -1;            // 强制重出 JSON（seq 由服务层提供，这里只保证不会被缓存挡住）
         }
 
-        private void Toast(string text, string kind)
+        /// <summary>浮层提示：只交 slug，句子由前端从词典取。</summary>
+        private void Toast(string slug, string kind)
         {
-            m_Toast = text ?? string.Empty;
+            m_ToastSlug = slug ?? string.Empty;
             m_ToastKind = string.IsNullOrEmpty(kind) ? "info" : kind;
             m_ToastUntil = UnityEngine.Time.unscaledTime + 3.2f;
             m_ToastId++;
@@ -165,9 +168,8 @@ namespace BlueprintHub.Systems.UI
                     case "retry": svc.Refresh(true); break;
                     case "like": Vote(svc, arg, "likes"); break;
                     case "dl": Vote(svc, arg, "downloads"); break;
-                    case "detail": Toast("蓝图详情与套用（需求 3/8）在 M2 里程碑开放。", "info"); break;
-                    case "avatar": Toast("账号面板（需求 5）在 M3 里程碑开放。", "info"); break;
-                    case "upload": Toast("上传面板（需求 4）在 M3 里程碑开放。", "info"); break;
+                    case "detail": Toast("SOON_DETAIL", "info"); break;
+                    case "upload": Toast("SOON_UPLOAD", "info"); break;
                     default: BlueprintHubMod.log.Warn("未知命令 " + kind); break;
                 }
             }
@@ -182,10 +184,10 @@ namespace BlueprintHub.Systems.UI
             if (string.IsNullOrEmpty(bpId)) return;
             if (svc.TryVote(bpId, kind))
             {
-                Toast(kind == "likes" ? "已点赞（本机计数）。" : "已记录一次套用（本机计数）。", "ok");
+                Toast(kind == "likes" ? "VOTE_LIKE_DONE" : "VOTE_USE_DONE", "ok");
                 Bump();
             }
-            else Toast("这个号已经点过一次了：每张蓝图只能加一次。", "warn");
+            else Toast("VOTE_DUP", "warn");
         }
 
         // ---------------- C# → 前端 ----------------
@@ -201,7 +203,7 @@ namespace BlueprintHub.Systems.UI
             if (m_ToastUntil > 0f && UnityEngine.Time.unscaledTime > m_ToastUntil)
             {
                 m_ToastUntil = 0f;
-                m_Toast = string.Empty;
+                m_ToastSlug = string.Empty;
                 m_CacheSeq = -1;
             }
 
@@ -216,7 +218,8 @@ namespace BlueprintHub.Systems.UI
             {
                 BlueprintHubMod.log.Warn("Build state: " + ex.GetType().Name + " " + ex.Message);
                 m_CacheJson = "{\"seq\":" + seq + ",\"visible\":" + (Visible ? "true" : "false")
-                    + ",\"status\":\"error\",\"statusText\":\"面板内部错误：" + Json.Quote(ex.GetType().Name).Trim('"') + "\"}";
+                    + ",\"status\":\"error\",\"statusSlug\":\"ERR_TITLE\",\"statusDetail\":\""
+                    + Json.Quote(ex.GetType().Name).Trim('"') + "\"}";
             }
             return m_CacheJson;
         }
@@ -228,10 +231,10 @@ namespace BlueprintHub.Systems.UI
             w.Num("seq", m_CacheSeq);
             w.Bool("visible", Visible);
             w.Num("opacity", opacityPercent / 100d);
+            w.Str("lang", LocaleTable.ActiveLocale);
+            w.Bool("dev", WorkshopClient.UsingDevCatalog);
             w.Str("modVersion", BlueprintHubMod.kVersion);
-            w.Str("modAuthor", "yuexian");
-            w.Str("title", "蓝图工坊");
-            w.Str("hint", "分享蓝图请点击市辖区面板的上传按钮");
+            w.Str("titleSlug", "PANEL_TITLE");
             w.Str("hotkey", BlueprintHubSetting.BoundKeyText);
 
             bool toastLive = m_ToastUntil > 0f && UnityEngine.Time.unscaledTime <= m_ToastUntil;
@@ -239,7 +242,7 @@ namespace BlueprintHub.Systems.UI
             {
                 w.BeginObj("toast");
                 w.Num("id", m_ToastId);
-                w.Str("text", m_Toast);
+                w.Str("slug", m_ToastSlug);
                 w.Str("kind", m_ToastKind);
                 w.End();
             }
@@ -247,7 +250,7 @@ namespace BlueprintHub.Systems.UI
             if (svc == null)
             {
                 w.Str("status", "loading");
-                w.Str("statusText", "正在初始化…");
+                w.Str("statusSlug", "STATUS_LOADING");
                 w.End();
                 return w.Finish();
             }
@@ -255,18 +258,16 @@ namespace BlueprintHub.Systems.UI
             BrowseKit.Meta meta = svc.Meta;
             BrowseKit.Result res = svc.Last ?? new BrowseKit.Result();
             string status = svc.Status ?? "loading";
-            // 查询条件把「已就绪但这一屏没结果」和「库里真没东西」分开：前者要显示清空搜索的引导
-            if (status == "ready" && res.Slice.Count == 0)
-            {
-                status = "noresult";
-            }
+            // 查询条件把「已就绪但这一屏没结果」和「库里真没东西」分开：前者要显示清空筛选的引导
+            if (status == "ready" && res.Slice.Count == 0) status = "noresult";
             w.Str("status", status);
-            w.Str("statusText", svc.StatusText ?? string.Empty);
-            w.Str("subtitle", Subtitle(svc, meta));
+            w.Str("statusSlug", string.IsNullOrEmpty(svc.StatusSlug) ? SlugForStatus(status) : svc.StatusSlug);
+            w.Str("statusDetail", svc.StatusDetail ?? string.Empty);
             w.Bool("truncated", svc.Truncated);
-            w.Str("playerKey", PlayerKeyOf(svc));
+            w.Num("maxItems", BrowseKit.MAX_ALL_PAGES * CatalogKit.PAGE_SIZE);
+            w.Str("tileM2", BrowseKit.M2Value((long)Math.Round(CatalogKit.TILE_AREA_M2)));
 
-            // ---- 左栏：社区类型（需求 2）----
+            // ---- 左栏：类型（词条 slug，不发明句子）----
             w.BeginArr("categories");
             IReadOnlyList<ListItem> all = svc.Items;
             for (int i = 0; i < CatalogKit.CategoryIds.Length; i++)
@@ -275,35 +276,33 @@ namespace BlueprintHub.Systems.UI
                 int count = 0;
                 for (int j = 0; j < all.Count; j++)
                     if (BrowseKit.CategoryMatches(all[j], id)) count++;
-                BrowseKit.CategoryMeta cm = meta == null ? null : meta.Find(id);
                 w.BeginObj();
                 w.Str("id", id);
-                w.Str("label", cm != null && cm.LabelZh.Length > 0 ? cm.LabelZh : CatalogKit.CategoryLabelsZh[i]);
-                w.Str("definition", cm != null && cm.DefinitionZh.Length > 0
-                    ? cm.DefinitionZh : CatalogKit.CategoryDefinitionsZh[i]);
+                w.Str("slug", "CAT_" + id);
+                w.Str("descSlug", "DESC_" + id);
+                w.Str("label", id);                 // 未知 id 才用得上；已知 id 前端按 slug 取词
                 w.Num("count", count);
                 w.Bool("selected", svc.Query.Category == id);
                 w.End();
             }
             w.End();
 
-            // ---- 菜单条（需求 3）----
+            // ---- 菜单条 ----
             w.BeginObj("menu");
-            w.Str("tileHint", CatalogKit.TileHintZh());
             w.Str("search", svc.Query.Search ?? string.Empty);
             w.Str("area", svc.Query.Area);
-            w.Str("areaLabel", CatalogKit.AreaClassZh(svc.Query.Area));
+            w.Str("areaSlug", "AREA_" + svc.Query.Area);
             w.BeginArr("areas");
-            WriteOption(w, "all", "全部");
-            WriteOption(w, "small", "小 · ≤2 区块");
-            WriteOption(w, "medium", "中 · 3~9 区块");
-            WriteOption(w, "large", "大 · >9 区块");
+            WriteOption(w, "all");
+            WriteOption(w, "small");
+            WriteOption(w, "medium");
+            WriteOption(w, "large");
             w.End();
             w.Str("sort", svc.Query.Sort);
-            w.Str("sortLabel", SortLabel(svc.Query.Sort));
+            w.Str("sortSlug", "SORT_" + svc.Query.Sort);
             w.BeginArr("sorts");
             for (int i = 0; i < CatalogKit.SortIds.Length; i++)
-                WriteOption(w, CatalogKit.SortIds[i], CatalogKit.SortLabelsZh[i]);
+                WriteOption(w, CatalogKit.SortIds[i]);
             w.End();
             w.Num("page", res.Page);
             w.Num("pages", res.Pages);
@@ -311,7 +310,7 @@ namespace BlueprintHub.Systems.UI
             w.Num("pageSize", CatalogKit.PAGE_SIZE);
             w.End();
 
-            // ---- 卡片（3 排 × 5）----
+            // ---- 卡片：一屏 4 排 × 5 ----
             w.BeginArr("items");
             DateTime now = DateTime.UtcNow;
             for (int i = 0; i < res.Slice.Count; i++) WriteItem(w, res.Slice[i], svc, now);
@@ -321,12 +320,36 @@ namespace BlueprintHub.Systems.UI
             return w.Finish();
         }
 
-        private static void WriteOption(JsonWriter w, string id, string label)
+        /// <summary>选项：只发 id + 词条 slug，句子留给词典。</summary>
+        private static void WriteOption(JsonWriter w, string id)
         {
             w.BeginObj();
             w.Str("id", id);
-            w.Str("label", label);
+            w.Str("slug", OptionSlug(id));
+            w.Str("label", id);            // 未知 id 时的兜底显示
             w.End();
+        }
+
+        private static string OptionSlug(string id)
+        {
+            switch (id)
+            {
+                case "all": case "small": case "medium": case "large": return "AREA_" + id;
+                case "weekly": case "total": case "uploadTime": case "area": case "name": return "SORT_" + id;
+                default: return string.Empty;
+            }
+        }
+
+        private static string SlugForStatus(string status)
+        {
+            switch (status)
+            {
+                case "empty": return "EMPTY_TITLE";
+                case "error": return "ERR_TITLE";
+                case "noresult": return "NORESULT_TITLE";
+                case "loading": return "STATUS_LOADING";
+                default: return string.Empty;
+            }
         }
 
         private static void WriteItem(JsonWriter w, ListItem it, CatalogService svc, DateTime now)
@@ -336,64 +359,32 @@ namespace BlueprintHub.Systems.UI
             long likes = it.Likes + (liked ? 1 : 0);
             long downloads = it.Downloads + (used ? 1 : 0);
 
+            string unit; int n;
+            bool hasAgo = BrowseKit.AgoParts(it.UpdatedAt, now, out unit, out n);
+
             w.BeginObj();
             w.Str("id", it.Id);
             w.Str("name", it.Name);
-            w.Str("author", string.IsNullOrEmpty(it.AuthorName) ? "匿名玩家" : it.AuthorName);
+            w.Str("author", it.AuthorName ?? string.Empty);      // 空 = 前端显示 ANONYMOUS
             w.Str("authorId", it.AuthorId);
             w.Str("cover", it.CoverUrl ?? string.Empty);
             w.Num("likes", likes);
             w.Num("downloads", downloads);
-            w.Str("likesText", BrowseKit.Count(likes));
-            w.Str("downloadsText", BrowseKit.Count(downloads));
             w.Bool("liked", liked);
             w.Bool("used", used);
             w.Num("areaM2", it.AreaM2);
-            w.Str("areaText", BrowseKit.AreaTextZh(it.AreaM2, CatalogKit.TILE_AREA_M2));
-            w.Str("areaFull", BrowseKit.AreaTextFull(it.AreaM2, CatalogKit.TILE_AREA_M2));
+            w.Str("tiles", BrowseKit.TilesValue(it.AreaM2, CatalogKit.TILE_AREA_M2));
+            w.Str("m2", BrowseKit.M2Value(it.AreaM2));
+            w.Str("wan", BrowseKit.WanValue(it.AreaM2));
+            w.Str("km2", BrowseKit.Km2Value(it.AreaM2));
             w.Str("areaClass", it.AreaClass);
-            w.Str("areaClassLabel", CatalogKit.AreaClassZh(it.AreaClass));
-            w.Str("updated", BrowseKit.RelativeTimeZh(it.UpdatedAt, now));
+            w.Str("areaClassSlug", "AREA_" + (string.IsNullOrEmpty(it.AreaClass) ? "all" : it.AreaClass));
+            w.Str("agoUnit", hasAgo ? unit : string.Empty);
+            w.Num("agoN", n);
             w.Num("assets", it.AssetCount);
             w.Str("desc", it.Description ?? string.Empty);
-            w.Str("categories", JoinLabels(it.Categories));
-            w.Str("cats", string.Join(",", it.Categories ?? new string[0]));   // 前端按 id 取色，中文标签不能当键
+            w.Str("cats", string.Join(",", it.Categories ?? new string[0]));   // 前端按 id 取色与取词
             w.End();
-        }
-
-        private static string JoinLabels(string[] cats)
-        {
-            if (cats == null || cats.Length == 0) return string.Empty;
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            for (int i = 0; i < cats.Length; i++)
-            {
-                if (i > 0) sb.Append(" / ");
-                sb.Append(CatalogKit.LabelZh(cats[i]));
-            }
-            return sb.ToString();
-        }
-
-        /// <summary>需求 1：小标题只在选中社区类型时出现，内容就是那一类的定义句。</summary>
-        private static string Subtitle(CatalogService svc, BrowseKit.Meta meta)
-        {
-            string cat = svc.Query.Category;
-            if (string.IsNullOrEmpty(cat)) return string.Empty;
-            BrowseKit.CategoryMeta cm = meta == null ? null : meta.Find(cat);
-            if (cm != null && cm.LabelZh.Length > 0) return cm.LabelZh + " · " + cm.DefinitionZh;
-            return CatalogKit.SubtitleLabel(cat, false);
-        }
-
-        private static string SortLabel(string sort)
-        {
-            for (int i = 0; i < CatalogKit.SortIds.Length; i++)
-                if (CatalogKit.SortIds[i] == sort) return CatalogKit.SortLabelsZh[i];
-            return CatalogKit.SortLabelsZh[0];
-        }
-
-        private static string PlayerKeyOf(CatalogService svc)
-        {
-            // 身份只用来做本机去重键，不显示、不外传（需求 5：玩家账号不对外展示）
-            return string.IsNullOrEmpty(svc.PlayerKey) ? "local" : "set";
         }
 
         /// <summary>引用相等比较器：getter 每帧都跑，值没换时连字符串内容都不必比。</summary>

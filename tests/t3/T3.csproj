@@ -15,5 +15,6 @@
 		<Compile Include="..\..\Bpc\CatalogKit.cs" />
 		<Compile Include="..\..\Bpc\BrowseKit.cs" />
 		<Compile Include="..\..\Bpc\BlueprintId.cs" />
+		<Compile Include="..\..\Bpc\PanelKeyKit.cs" />
 	</ItemGroup>
 </Project>

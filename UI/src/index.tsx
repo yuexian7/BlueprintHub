@@ -1,20 +1,23 @@
 import React from "react";
 import { ModRegistrar } from "cs2/modding";
-import { C, IconClose, IconLogo, IconUpload, LAUNCHER_GLYPH_SRC } from "./icons";
+import { C, IconClose, IconLogo, LAUNCHER_GLYPH_SRC } from "./icons";
 import { cmd, useUiState } from "./api";
 import { BrowseBody } from "./browse";
+import { DistrictUploadSectionView, DISTRICT_SECTION_TYPE, DistrictFallbackHint } from "./district";
 import { ensureStyles } from "./styles";
 import { useT } from "./l10n";
 import * as GameUI from "cs2/ui";
 
 /**
- * 蓝图工坊面板外壳。两个挂载点：
+ * 蓝图工坊面板外壳。三个挂载点：
  *   GameTopLeft → 入口方块（官方组件 FloatingButton，theme 就是原版的 .button_ke4）
  *   Game        → 面板本体
- * 两处各自渲染同一份 C# 状态，不做本地镜像 —— 谁都不许自己攒数据。
+ *   selectedInfoSectionComponents → 市辖区面板底部那颗「上传蓝图」（需求 2）
+ * 三处各自渲染同一份 C# 状态，不做本地镜像 —— 谁都不许自己攒数据。
  *
- * 槽位（FACT，官方模板 modding.d.ts 的 AppendHookTargets）：Menu / Editor / Game /
- * GameTopLeft / GameTopRight / GameBottomRight / UniversalModMenu —— 没有 GameBottomLeft。
+ * 槽位（FACT，运行时从游戏 bundle 里数出来的 ModdingHook 名字，共 8 个）：
+ * Menu / Editor / Game / GameTopLeft / GameTopRight / GameBottomLeft / GameBottomRight / UniversalModMenu。
+ * 官方模板的 .d.ts 少写了 GameBottomLeft —— 以 bundle 为准（0.4.0 复核）。
  */
 
 // 原版组件库是 window["cs2/ui"]（webpack externals）。拿不到时退成自画的同款方块，
@@ -35,6 +38,7 @@ try {
 
 const Header = ({ st }: { st: ReturnType<typeof useUiState> }) => {
   const t = useT();
+  const acc = st.account || { loggedIn: false, avatar: "", author: "" };
   return (
     <div className="bph-head">
       <span className="bph-logo"><IconLogo size={30} /></span>
@@ -43,10 +47,16 @@ const Header = ({ st }: { st: ReturnType<typeof useUiState> }) => {
       {st.dev ? <span className="bph-dev">{t("DEV_TAG")}</span> : null}
       <div className="bph-spacer" />
       {st.hotkey ? <span className="bph-hint">{t("HOTKEY_TIP", { key: st.hotkey })}</span> : null}
-      {/* 需求 5：右上角是图标按钮，不是一句话 */}
-      <div className="bph-hbtn bph-hbtn-acc" title={t("BTN_UPLOAD")} onClick={() => cmd("upload")}>
-        <IconUpload size={18} />
-      </div>
+      {/* 需求 3：右上角不再是上传按钮 —— 那里现在是账号按钮，左边一句淡蓝提示。
+          上传的入口在**市辖区面板**（需求 2），钩子没挂上时才由 DistrictFallbackHint 兜底。 */}
+      <span className="bph-share">{t("UPLOAD_HINT")}</span>
+      {acc.loggedIn && acc.avatar
+        ? <img className="bph-avatar" src={acc.avatar} alt="" title={t("ACCOUNT_PROFILE_TIP")} onClick={() => cmd("profile")} />
+        : (acc.loggedIn
+          ? <div className="bph-avatar-box" title={t("ACCOUNT_PROFILE_TIP")} onClick={() => cmd("profile")}>
+              <span className="bph-avatar-dot" />
+            </div>
+          : <div className="bph-login-box" title={t("ACCOUNT_LOGIN_TIP")} onClick={() => cmd("account")}>{t("ACCOUNT_LOGIN")}</div>)}
       <div className="bph-hbtn" title={t("BTN_CLOSE")} onClick={() => cmd("close")}>
         <IconClose size={16} />
       </div>
@@ -75,6 +85,7 @@ const Panel = () => {
         style={{ background: "linear-gradient(180deg, rgba(23,34,47," + a + ") 0%, rgba(18,26,38," + a + ") 100%)" }}
       >
         <Header st={st} />
+        <DistrictFallbackHint />
         <BrowseBody st={st} t={t} />
         <Toast st={st} />
       </div>
@@ -111,6 +122,32 @@ const Launcher = () => {
   return <div className="bph-toggle">{inner}</div>;
 };
 
+/**
+ * 市辖区面板的条目映射表（游戏自己的模块路径）。
+ * FACT：bundle 里 `Q.add("game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx",
+ * {get selectedInfoSectionComponents(){return xMe}…})`（index.js @2095653），而 xMe 是一个 `var`
+ * 的对象「section 类型全名 → 组件」，渲染时才读（`components: xMe`）→ 可以被 extend 换掉。
+ * 已上架的 AdvancedBuildingControl 就是这么把条目塞进同一个面板的（它的 .mjs 里是
+ * map["AdvancedBuildingControl.Systems.SIP_ABC"]），键的形状与本模组一致。
+ */
+const SECTIONS_PATH = "game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx";
+
+/** 挂上去成不成，一定要回告 C#：不然 hooks.districtSection 会报假阳性，玩家点了按钮找不到入口。 */
+function attachDistrictSection(registry: any): boolean {
+  try {
+    if (!registry || typeof registry.extend !== "function") return false;
+    registry.extend(SECTIONS_PATH, "selectedInfoSectionComponents", (orig: any) => {
+      const map: { [k: string]: unknown } = orig && typeof orig === "object" ? Object.assign({}, orig) : {};
+      map[DISTRICT_SECTION_TYPE] = (props: any) => <DistrictUploadSectionView {...(props || {})} />;
+      return map;
+    });
+    return true;
+  } catch (e) {
+    console.warn("[BlueprintHub] extend selectedInfoSectionComponents failed", e);
+    return false;
+  }
+}
+
 const register: ModRegistrar = (moduleRegistry) => {
   try { ensureStyles(); } catch (e) { console.warn("[BlueprintHub] styles", e); }
   let mounted = 0;
@@ -122,8 +159,11 @@ const register: ModRegistrar = (moduleRegistry) => {
     moduleRegistry.append("Game", () => <Panel />);
     mounted++;
   } catch (e) { console.warn("[BlueprintHub] append Game failed", e); }
-  // 这两行日志是排障的第一现场：没有它 = 模块根本没被 loader 拉到
-  console.log("[BlueprintHub] UI module registered, slots=" + mounted + ", nativeUi=" + (GameButton ? "yes" : "fallback"));
+  const districtHook = attachDistrictSection(moduleRegistry);
+  try { cmd("hookok", districtHook ? "1" : "0"); } catch (e) { /* 报不出去也只是少了一条兜底提示 */ }
+  // 这几行日志是排障的第一现场：没有它 = 模块根本没被 loader 拉到
+  console.log("[BlueprintHub] UI module registered, slots=" + mounted +
+    ", nativeUi=" + (GameButton ? "yes" : "fallback") + ", districtHook=" + (districtHook ? "yes" : "no"));
 };
 
 /** 本模组没有独立 css 文件；loader 靠这个导出决定是否再拉同名 .css。 */

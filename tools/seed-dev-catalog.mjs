@@ -33,7 +33,10 @@ const GAME_DATA = path.join(
   os.homedir(), "AppData", "LocalLow", "Colossal Order", "Cities Skylines II",
   "ModsData", "BlueprintHub");
 const DEV = path.join(GAME_DATA, "dev-catalog");
-const TILE_M2 = 388129;                       // 1 区块 = 623m × 623m
+// 面积常量与模组 Bpc/CatalogKit.cs、工坊 build-catalog.mjs 同一条算式（不要手敲取整值）
+const CELL_EDGE_M = 8;                       // 1u = 一个可划分单元格
+const U_M2 = CELL_EDGE_M * CELL_EDGE_M;      // 64 ㎡
+const TILE_EDGE_M = 14336 / 23;              // 623.304347826087（1 区块边长；1 区块 ≈ 6070.44u）
 
 const args = process.argv.slice(2);
 const N = (() => {
@@ -59,16 +62,21 @@ if (!fs.existsSync(path.join(WS, "node_modules", "ajv"))) {
 }
 
 // ---------- 假数据（名字/面积/计数都是编的，只用来喂渲染）----------
-const CATS = ["residential", "commercial", "industrial", "park", "education", "public", "mixed"];
+// 0.4.0：类别换成「产业区 / 文教区 / 交通枢纽区 / 公共服务区、去掉混合区」这一套 id（需求 8）；
+// authorId 换成 16 位小写十六进制的作者键 —— schema 已经不吃 SteamID64 了，假数据必须跟着换，
+// 否则「开发机造得出来、线上 builder 不认」这种漂移就回来了。
+const CATS = ["residential", "commercial", "industrial", "park", "education", "transit", "public_service"];
 const CAT_ZH = {
-  residential: "住宅", commercial: "商圈", industrial: "厂区", park: "公园",
-  education: "文教", public: "枢纽", mixed: "混合",
+  residential: "住宅", commercial: "商圈", industrial: "产业", park: "公园",
+  education: "文教", transit: "枢纽", public_service: "公共服务",
 };
 const AUTHORS = [
-  ["76561198000001234", "阿明"], ["76561198000005678", "牛姐"],
-  ["76561198000009999", "老王"], ["76561198000012222", "海岸线"],
+  ["0f3c9a51be7d2486", "阿明"], ["a71e5d09c24bf831", "牛姐"],
+  ["5c92b70e18da3f46", "老王"], ["d1460a8b73ef95c2", "海岸线"],
 ];
-const SUFFIX = ["北岸", "老城", "新区", "天际", "港湾", "山麓", "中环", "夜市", "学府", "厂区东"];
+const SUFFIX = ["北岸", "老城", "新区", "天际", "港湾", "山麓", "中环", "学府", "厂区东", "立交西"];
+// 面积铺到三档上（小 <1000u / 中 1000~4000u / 大 >4000u），不然面积筛选与面积排序拍不出差别
+const U_LADDER = [240, 620, 980, 1200, 2400, 3900, 5200, 12480, 41000, 960];
 
 function guid(seed) {
   const h = crypto.createHash("md5").update("bph-dev-" + seed).digest("hex");
@@ -94,7 +102,7 @@ function coverSvg(seed, color) {
 
 const COLOR = {
   residential: "#6ea8fe", commercial: "#f0b429", industrial: "#9b8cff", park: "#4caf7d",
-  education: "#4fd1c5", public: "#ff8f5e", mixed: "#c0cb78",
+  education: "#4fd1c5", transit: "#ff8f5e", public_service: "#c0cb78",
 };
 
 const DAY = 86400000;
@@ -103,17 +111,24 @@ const items = [];
 for (let i = 0; i < N; i++) {
   const [authorId, authorName] = AUTHORS[i % AUTHORS.length];
   const cat = CATS[i % CATS.length];
-  const tilesX = 1 + (i % 4), tilesY = 1 + ((i * 3) % 4);
-  const tiles = tilesX * tilesY;
+  // 面积按 u 定，再反推包围盒：正方形外框保证 areaM2 ≤ widthM×depthM（builder 会按这条几何关系判）
+  const u = U_LADDER[i % U_LADDER.length];
+  const areaM2 = u * U_M2;
+  const side = Math.ceil(Math.sqrt(areaM2));
+  const tilesX = Math.max(1, Math.ceil(side / TILE_EDGE_M));
+  const tilesY = tilesX;
   const bpId = `b${guid(i)}-${authorId}`;
+  const ageDays = 1 + (i * 5) % 400;          // 首次上传（createdAt）
+  const updDays = (i * 3) % Math.max(1, ageDays);   // 后来又有更新（updatedAt）—— 两个排序键才有区分度
   items.push({
     bpId, authorId, authorName,
     name: CAT_ZH[cat] + SUFFIX[i % SUFFIX.length] + (i >= SUFFIX.length ? " " + Math.floor(i / SUFFIX.length + 1) : ""),
-    cat, tiles, tilesX, tilesY,
+    cat, u, areaM2, side, tilesX, tilesY,
+    areaClass: u < 1000 ? "small" : u <= 4000 ? "medium" : "large",
     likes: (i * 7) % 60, downloads: (i * 11) % 90,
     likes7d: (i * 3) % 12, downloads7d: (i * 5) % 20,
-    days: 1 + (i * 5) % 400,
-    desc: "这是开发用的假蓝图，只用来验面板渲染：卡片、封面、分页、搜索、排序、点赞去重。真数据来自 " +
+    ageDays, updDays,
+    desc: "这是开发用的假蓝图，只用来验面板渲染：卡片、封面、分页、搜索、8 种排序、点赞去重。真数据来自 " +
       "blueprinthub-workshop。",
   });
 }
@@ -167,7 +182,8 @@ let failed = null;
 try {
   for (const it of items) {
     const dir = `blueprints/${it.authorId}/${it.bpId}`;
-    const stamp = new Date(now - it.days * DAY).toISOString().replace(/\.\d+Z$/, "Z");
+    const created = new Date(now - it.ageDays * DAY).toISOString().replace(/\.\d+Z$/, "Z");
+    const updated = new Date(now - it.updDays * DAY).toISOString().replace(/\.\d+Z$/, "Z");
     const meta = {
       schemaVersion: 1,
       bpId: it.bpId,
@@ -176,14 +192,15 @@ try {
       name: it.name,
       description: it.desc,
       categories: [it.cat],
-      createdAt: stamp,
-      updatedAt: stamp,
+      areaClass: it.areaClass,
+      createdAt: created,
+      updatedAt: updated,
       gameBuild: "1.6.2f1",
       generatorVersion: "dev-seed",
       districtName: it.name + "区",
       bounds: {
-        widthM: it.tilesX * 623, depthM: it.tilesY * 623,
-        areaM2: it.tiles * TILE_M2, tilesX: it.tilesX, tilesY: it.tilesY,
+        widthM: it.side, depthM: it.side,
+        areaM2: it.areaM2, tilesX: it.tilesX, tilesY: it.tilesY,
       },
       anchors: { centerOffsetXM: 0, centerOffsetZM: 0, centroidIsApproximate: false },
       // 分节全空：浏览侧不碰 blob（套用是 M4），这样假数据不会在 blob/ 里留孤儿
@@ -201,7 +218,7 @@ try {
       ],
     };
     put(`${dir}/meta.json`, JSON.stringify(meta, null, 2) + "\n");
-    put(`${dir}/preview/cover.svg`, coverSvg(it.bpId.length + it.tiles, COLOR[it.cat]));
+    put(`${dir}/preview/cover.svg`, coverSvg(it.bpId.length + it.u, COLOR[it.cat]));
     put(`stats/${it.authorId}/${it.bpId}.json`, JSON.stringify({
       downloads: it.downloads, likes: it.likes,
       downloads7d: it.downloads7d, likes7d: it.likes7d,

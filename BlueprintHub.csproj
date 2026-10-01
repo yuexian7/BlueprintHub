@@ -92,6 +92,8 @@
 		<Reference Include="Colossal.UI.Binding"><Private>false</Private></Reference>
 		<!--IdentityKit 读 PlatformManager.instance.userSpecificPath 做本机去重键（FACT：api-PlatformManager.txt:200）-->
 		<Reference Include="Colossal.PSI.Common"><Private>false</Private></Reference>
+		<!--AccountKit 打开官方 ModsUI 个人资料页要用 PdxSdk 平台实例（FACT：research/PdxSdkPlatform.cs 的 ShowModsUIProfilePage）-->
+		<Reference Include="Colossal.PSI.PdxSdk"><Private>false</Private></Reference>
 		<Reference Include="UnityEngine.CoreModule"><Private>false</Private></Reference>
 		<Reference Include="UnityEngine.UIElementsModule"><Private>false</Private></Reference>
 		<Reference Include="Unity.InputSystem"><Private>false</Private></Reference>

@@ -8,6 +8,7 @@ using Game.UI;
 using BlueprintHub.Bpc;
 using BlueprintHub.Platform;
 using BlueprintHub.Workshop;
+using Unity.Entities;
 using UnityEngine;
 using JsonWriter = BlueprintHub.Bpc.JsonWriter;   // Colossal.UI.Binding 里也有个 JsonWriter（FACT：CS0104）
 
@@ -38,6 +39,8 @@ namespace BlueprintHub.Systems.UI
         private bool m_CacheVisible;
         private int m_CacheOpacity = -1;
         private string m_CacheJson = string.Empty;
+        private bool m_HasDistrictSection;
+        private bool m_JsHookOk;
 
         private string m_ToastSlug = string.Empty;
         private string m_ToastKind = "info";
@@ -53,6 +56,27 @@ namespace BlueprintHub.Systems.UI
             base.OnCreate();
             Instance = this;
             LocalLibrary.EnsureDirs();
+
+            // 临时目录：每次装载先清干净（封面缓存、头像、草稿预览全在里面，重开游戏就是新的）
+            LocalLibrary.PurgeTemp("OnCreate");
+            // 分节缓存是内容寻址的、可再生的：装载时按上限收敛一次，不让它无限长
+            LocalLibrary.PruneBlobs(LocalLibrary.BLOB_KEEP_FILES, LocalLibrary.BLOB_KEEP_BYTES);
+
+            // 市辖区面板那颗「上传蓝图」：官方 section 通道注册进底部那一排（删除键旁边），零 Harmony
+            try
+            {
+                Game.UI.InGame.SelectedInfoUISystem sis =
+                    World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>();
+                DistrictUploadSection sec = World.GetOrCreateSystemManaged<DistrictUploadSection>();
+                sis.AddBottomSection(sec);
+                m_HasDistrictSection = true;
+                BlueprintHubMod.log.Info("市辖区面板条目已注册：" + DistrictUploadSection.kTypeName);
+            }
+            catch (Exception ex)
+            {
+                m_HasDistrictSection = false;
+                BlueprintHubMod.log.Warn("AddBottomSection: " + ex.GetType().Name + " " + ex.Message);
+            }
 
             try
             {
@@ -118,8 +142,47 @@ namespace BlueprintHub.Systems.UI
             Visible = on;
             BlueprintHubMod.PanelVisible = on;
             if (on) CatalogService.Ensure().Refresh(false);
+            else
+            {
+                // 关面板就把临时目录收回上限：这一页看过的封面 + 头像 + 当前草稿预览留着，其余清掉
+                System.Collections.Generic.HashSet<string> keep = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string n in PanelCacheKeepHint()) if (!string.IsNullOrEmpty(n)) keep.Add(n);
+                if (!string.IsNullOrEmpty(UploadService.CoverUrl))
+                {
+                    int slash = UploadService.CoverUrl.LastIndexOf('/');
+                    if (slash >= 0) keep.Add(UploadService.CoverUrl.Substring(slash + 1));
+                }
+                LocalLibrary.PruneTemp(keep, LocalLibrary.TEMP_KEEP_FILES, LocalLibrary.TEMP_KEEP_BYTES);
+            }
             Bump();
             BlueprintHubMod.log.Info("面板 " + (on ? "打开" : "关闭"));
+        }
+
+        /// <summary>
+        /// 本轮允许留在临时目录里的文件名（当前页的封面 + 头像），其它的都是可再生的。
+        /// 不用迭代器写：C# 不允许在带 catch 的 try 里 yield（CS1626），而这里什么都可能抛。
+        /// </summary>
+        private System.Collections.Generic.List<string> PanelCacheKeepHint()
+        {
+            System.Collections.Generic.List<string> keep = new System.Collections.Generic.List<string>();
+            try { keep.Add(Platform.AccountKit.AvatarFile); } catch (Exception) { }
+            try
+            {
+                CatalogService svc = CatalogService.Instance;
+                if (svc != null)
+                {
+                    IReadOnlyList<ListItem> items = svc.Items;
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        string url = items[i] == null ? null : items[i].CoverUrl;
+                        if (string.IsNullOrEmpty(url)) continue;
+                        int slash = url.LastIndexOf('/');
+                        if (slash >= 0 && slash + 1 < url.Length) keep.Add(url.Substring(slash + 1));
+                    }
+                }
+            }
+            catch (Exception) { /* 拿不到清单就只保头像，反正都是可再生的 */ }
+            return keep;
         }
 
         /// <summary>状态变了就叫一次：seq +1，主线程下一次 OnUpdate 会把新 JSON 推给前端。</summary>
@@ -128,6 +191,13 @@ namespace BlueprintHub.Systems.UI
             BlueprintHubUISystem s = Instance;
             if (s == null) s = this;
             s.m_CacheSeq = -1;            // 强制重出 JSON（seq 由服务层提供，这里只保证不会被缓存挡住）
+        }
+
+        /// <summary>给非主线程/别的系统用：实例还没建起来时什么都不做（面板还没开，谈不上刷新）。</summary>
+        public static void BumpIfAny()
+        {
+            BlueprintHubUISystem s = Instance;
+            if (s != null) s.Bump();
         }
 
         /// <summary>浮层提示：只交 slug，句子由前端从词典取。</summary>
@@ -169,7 +239,15 @@ namespace BlueprintHub.Systems.UI
                     case "like": Vote(svc, arg, "likes"); break;
                     case "dl": Vote(svc, arg, "downloads"); break;
                     case "detail": Toast("SOON_DETAIL", "info"); break;
-                    case "upload": Toast("SOON_UPLOAD", "info"); break;
+
+                    // ---- 0.4.0：右上角那颗是账号按钮；上传在市辖区面板（需求 2/3/4）----
+                    // 前端把它那半条钩子挂上没有：两边都成了才算「市辖区面板里有按钮」
+                    case "hookok": m_JsHookOk = arg == "1"; Bump(); break;
+                    case "account": Platform.AccountKit.SignIn(); break;
+                    case "profile": Platform.AccountKit.OpenProfile(); break;
+                    case "upload": SubmitUpload(arg); break;
+                    case "uploadreset": UploadService.Reset(); break;
+
                     default: BlueprintHubMod.log.Warn("未知命令 " + kind); break;
                 }
             }
@@ -177,6 +255,44 @@ namespace BlueprintHub.Systems.UI
             {
                 BlueprintHubMod.log.Warn("OnCmd: " + ex.GetType().Name + " " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// 市辖区面板那颗按钮提交上来的表单：arg 形如「名称|类型|简介」。
+        /// 名称与类型不含 '|'（名称里出现 '|' 直接去掉，类型是七个已知 id 之一），**简介允许含 '|'，所以它是最后一段**。
+        /// 采集用的那个区不从前端传：Entity 不能安全地跨过 JS 边界，C# 侧在条目刷新时已经记下了（UploadService.ReadyDistrict）。
+        /// </summary>
+        private void SubmitUpload(string arg)
+        {
+            string name = arg ?? string.Empty;
+            string cat = string.Empty;
+            string desc = string.Empty;
+
+            int p1 = name.IndexOf('|');
+            if (p1 >= 0)
+            {
+                string rest = name.Substring(p1 + 1);
+                name = name.Substring(0, p1);
+                int p2 = rest.IndexOf('|');
+                if (p2 >= 0) { cat = rest.Substring(0, p2); desc = rest.Substring(p2 + 1); }
+                else cat = rest;
+            }
+            name = name.Replace("|", string.Empty).Trim();
+
+            if (!Platform.AccountKit.LoggedIn)
+            {
+                Toast("ACCOUNT_LOGIN_TIP", "warn");
+                return;
+            }
+
+            // 采集是同步跑的（一次点击几百毫秒，理由见 DistrictCapture 的线程口径注释）：
+            // 所以回来就能定相位，Toast 报的是真实结果，而不是「我开始了」。
+            UploadService.Start(UploadService.ReadyDistrict, name, cat, desc);
+            if (UploadService.State == UploadService.Phase.Done) Toast("DUPLOAD_OK", "ok");
+            else if (UploadService.State == UploadService.Phase.Failed)
+                Toast(UploadService.Detail != null && UploadService.Detail.StartsWith("too-big", StringComparison.Ordinal)
+                    ? "DUPLOAD_TOO_BIG" : "DUPLOAD_FAIL", "warn");
+            else Toast("DUPLOAD_NONE", "warn");
         }
 
         private void Vote(CatalogService svc, string bpId, string kind)
@@ -192,8 +308,35 @@ namespace BlueprintHub.Systems.UI
 
         // ---------------- C# → 前端 ----------------
 
+        /// <summary>
+        /// 兜底：官方条目没挂上时（游戏大版本改了内部结构），C# 自己盯选中的是不是市辖区，
+        /// 这样主面板那条「先选中区再点按钮」的退路也还能走通 —— 不能让玩家卡在死路上。
+        /// 限流 0.5 秒一次：这一步每帧跑没意义，选中区是玩家动作，不是每帧变化的量。
+        /// </summary>
+        private float m_NextProbe;
+
+        private void ProbeSelectionFallback()
+        {
+            if (m_HasDistrictSection) return;
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (now < m_NextProbe) return;
+            m_NextProbe = now + 0.5f;
+            try
+            {
+                Game.UI.InGame.SelectedInfoUISystem sis =
+                    World.GetOrCreateSystemManaged<Game.UI.InGame.SelectedInfoUISystem>();
+                Entity e = sis != null ? sis.selectedEntity : Entity.Null;
+                UploadService.ReadyDistrict = e != Entity.Null && EntityManager.HasComponent<Game.Areas.District>(e) ? e : Entity.Null;
+            }
+            catch (Exception) { UploadService.ReadyDistrict = Entity.Null; }
+        }
+
         private string GetState()
         {
+            // 账号是外部事件（玩家可能在游戏菜单里刚登录完），限流读一次；变化会自己 Bump
+            Platform.AccountKit.Tick();
+            ProbeSelectionFallback();
+
             CatalogService svc = CatalogService.Instance;
             int seq = (svc == null ? 0 : svc.Seq) * 4 + (Visible ? 2 : 0);
             int opacity = (int)Math.Round(BlueprintHubSetting.s_PanelOpacity * 100f);
@@ -265,11 +408,47 @@ namespace BlueprintHub.Systems.UI
             w.Str("statusDetail", svc.StatusDetail ?? string.Empty);
             w.Bool("truncated", svc.Truncated);
             w.Num("maxItems", BrowseKit.MAX_ALL_PAGES * CatalogKit.PAGE_SIZE);
-            w.Str("tileM2", BrowseKit.M2Value((long)Math.Round(CatalogKit.TILE_AREA_M2)));
+            // 那句换算提示的两个数：1u 的边长（米）与 1 地图区块等于多少 u。数字由常量算，不写死。
+            w.Str("cellM", CatalogKit.CELL_EDGE_M.ToString("0.#", CultureInfo.InvariantCulture));
+            w.Str("tileU", BrowseKit.TileUValue());
 
-            // ---- 左栏：类型（词条 slug，不发明句子）----
+            // ---- 账号（需求 4：顶栏那颗按钮 = 个人资料）----
+            // 只读官方登录态：登录了就显示头像，没登录就显示「登录」；本模组不存任何凭据。
+            w.BeginObj("account");
+            w.Bool("loggedIn", AccountKit.LoggedIn);
+            w.Str("avatar", AccountKit.AvatarUrl ?? string.Empty);
+            w.Str("author", UploadService.AuthorName());
+            w.End();
+
+            // ---- 挂钩情况：市辖区面板那颗按钮没挂上时，主面板要留一条能走通的路（不死路）----
+            w.BeginObj("hooks");
+            w.Bool("districtSection", m_HasDistrictSection && m_JsHookOk);
+            w.End();
+
+            // ---- 上传流水线的当前状态（详情页/草稿箱都读这一块）----
+            w.BeginObj("upload");
+            w.Str("phase", UploadService.PhaseName);
+            w.Str("detail", UploadService.Detail ?? string.Empty);
+            w.Str("path", UploadService.DraftPath ?? string.Empty);
+            w.Str("bpId", UploadService.BpId ?? string.Empty);
+            w.Str("name", UploadService.DraftName ?? string.Empty);
+            w.Str("cover", UploadService.CoverUrl ?? string.Empty);
+            w.Num("missing", UploadService.MissingCount);
+            w.Num("bytes", UploadService.TotalBytes);
+            w.End();
+
+            // ---- 左栏：类型（需求 8：最上面是「全部」，其下 7 类；需求 9：选中项的定义显示在列表下方）----
+            // 词条 slug 由 id 推，句子留给词典 —— 本文件不出现任何玩家可见句子。
             w.BeginArr("categories");
             IReadOnlyList<ListItem> all = svc.Items;
+            w.BeginObj();
+            w.Str("id", "all");
+            w.Str("slug", "CAT_all");
+            w.Str("descSlug", "");                 // 作者要求：全部不需要定义说明
+            w.Str("label", "all");
+            w.Num("count", all.Count);
+            w.Bool("selected", string.IsNullOrEmpty(svc.Query.Category) || svc.Query.Category == "all");
+            w.End();
             for (int i = 0; i < CatalogKit.CategoryIds.Length; i++)
             {
                 string id = CatalogKit.CategoryIds[i];
@@ -286,6 +465,10 @@ namespace BlueprintHub.Systems.UI
                 w.End();
             }
             w.End();
+            // 当前选中类型（含「全部」）：左栏下方那句定义说明取它的 descSlug
+            w.Str("catSlug", "CAT_" + (string.IsNullOrEmpty(svc.Query.Category) ? "all" : svc.Query.Category));
+            w.Str("catDescSlug", string.IsNullOrEmpty(svc.Query.Category) || svc.Query.Category == "all"
+                ? "" : "DESC_" + svc.Query.Category);
 
             // ---- 菜单条 ----
             w.BeginObj("menu");
@@ -335,7 +518,8 @@ namespace BlueprintHub.Systems.UI
             switch (id)
             {
                 case "all": case "small": case "medium": case "large": return "AREA_" + id;
-                case "weekly": case "total": case "uploadTime": case "area": case "name": return "SORT_" + id;
+                case "weekly": case "uploadTime": case "createdDesc": case "createdAsc":
+                case "areaDesc": case "areaAsc": case "nameAsc": case "nameDesc": return "SORT_" + id;
                 default: return string.Empty;
             }
         }
@@ -373,10 +557,9 @@ namespace BlueprintHub.Systems.UI
             w.Bool("liked", liked);
             w.Bool("used", used);
             w.Num("areaM2", it.AreaM2);
+            // 面积一律按 u 讲（需求 6）；tiles 只在满 1 区块时作为「有多大块」的补充量
+            w.Str("u", BrowseKit.UValue(it.AreaM2));
             w.Str("tiles", BrowseKit.TilesValue(it.AreaM2, CatalogKit.TILE_AREA_M2));
-            w.Str("m2", BrowseKit.M2Value(it.AreaM2));
-            w.Str("wan", BrowseKit.WanValue(it.AreaM2));
-            w.Str("km2", BrowseKit.Km2Value(it.AreaM2));
             w.Str("areaClass", it.AreaClass);
             w.Str("areaClassSlug", "AREA_" + (string.IsNullOrEmpty(it.AreaClass) ? "all" : it.AreaClass));
             w.Str("agoUnit", hasAgo ? unit : string.Empty);

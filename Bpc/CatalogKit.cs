@@ -12,24 +12,21 @@ namespace BlueprintHub.Bpc
     /// </summary>
     public static class CatalogKit
     {
-        // ---- 社区类型（需求 2 的 7 类）----
+        // ---- 社区类型（0.4.0 按作者给的 8 项重划：全部 + 下面 7 类）----
         // 这里只留 id 序列：**分类的中文名与定义不在 C# 里**，玩家可见文字唯一出处是 Locale.cs 的
-        // CAT_<id> / DESC_<id> 词条（0.3.1 起 workshop 目录那侧的 labelZh/definitionZh 由 tests/t3
-        // 直接和那张表对照钉住）。以前这两份常量表 + LabelZh/SubtitleLabel 没有任何生产代码在用，
-        // 上一轮改官方措辞时它就漂了，所以整段删掉，避免「面板左栏和列表标题各说各话」第二次发生。
+        // CAT_<id> / DESC_<id> 词条（tests/t3 直接拿 workshop 目录的 labelZh/definitionZh 与那张表对照钉住）。
+        // 作者的三条硬要求，别改回去：① 产业区不叫工业区；② 文教区不只等于教育，别改成教育区；
+        // ③ 原「公共区」一分为二（公共服务区 / 交通枢纽区），「混合区」取消。
         public static readonly string[] CategoryIds =
         {
-            "residential", "commercial", "industrial", "park", "education", "public", "mixed"
+            "residential", "commercial", "industrial", "park", "education", "transit", "public_service"
         };
 
-        public const string Mixed = "mixed";
-
-        /// <summary>需求 5：上传时勾了多个主体类型 = 没有单一主体，自动归混合。原始勾选仍留在 meta 里。</summary>
-        public static string[] IndexCategories(string[] chosen)
+        /// <summary>取消混合区之后：一张蓝图只有一个主类型。多选时取第一个（采集表单是单选，这里只兜底）。</summary>
+        public static string PrimaryCategory(string[] chosen)
         {
-            if (chosen == null || chosen.Length == 0) return new[] { Mixed };
-            if (chosen.Length > 1) return new[] { Mixed };
-            return new[] { chosen[0] };
+            if (chosen == null || chosen.Length == 0) return null;
+            return IsKnownCategory(chosen[0]) ? chosen[0] : null;
         }
 
         public static bool IsKnownCategory(string id)
@@ -39,36 +36,40 @@ namespace BlueprintHub.Bpc
             return false;
         }
 
-        // ---- 面积档（需求 3 的「全部 / 大 / 中 / 小」）----
-        /// <summary>1 区块 = 623m × 623m（ZoneSnapper 反编译 FACT 35）→ 388,129 ㎡。</summary>
-        public const double TILE_EDGE_M = 623d;
-        public const double TILE_AREA_M2 = TILE_EDGE_M * TILE_EDGE_M;   // 388129
+        // ---- 面积单位：u（游戏单元格面积）----
+        /// <summary>
+        /// 0.4.0 起面板与目录一律按 **u** 讲面积：1u = 一个可划分单元格 = 8m × 8m = 64 ㎡。
+        /// 单元格边长与地图区块边长都放成常量，界面里那句换算提示由它们算出来，不写死数字。
+        /// </summary>
+        public const double CELL_EDGE_M = 8d;
+        public const double U_AREA_M2 = CELL_EDGE_M * CELL_EDGE_M;             // 64
+        /// <summary>
+        /// 1 地图区块的边长：**623.3043478m**（FACT：Game.Areas.MapTileSystem.LEGACY_CELL_SIZE = 623.3043f，
+        /// 全图 14336m ÷ 23 格 = 623.3043478m；MapTilePurchaseSystem.kMapTileSizeModifier = 1/623.3043478²）。
+        /// 0.3.x 记的 623m / 388129㎡ 是把它取整了，少算 379.3㎡（0.098%），这里换成真值。
+        /// </summary>
+        public const double TILE_EDGE_M = 14336d / 23d;                        // 623.304347826087
+        public const double TILE_AREA_M2 = TILE_EDGE_M * TILE_EDGE_M;          // 388508.31
 
-        public const int SMALL_MAX_TILES = 2;
-        public const int MEDIUM_MAX_TILES = 9;
+        /// <summary>1 个地图区块 = 6070.44u —— 不是整数（区块边长不是 8 的倍数），所以界面里一律写「≈」。</summary>
+        public static double TileInU => TILE_AREA_M2 / U_AREA_M2;
 
-        public static string AreaClass(long tiles)
+        // 作者定的三档（0.4.0）：小 <1000u、中 1000~4000u、大 >4000u
+        public const long SMALL_MAX_U = 1000L;
+        public const long MEDIUM_MAX_U = 4000L;
+
+        /// <summary>㎡ → u（向下取整到整数 u；不足 1u 的显示 1u 由界面层负责，这里只算数）。</summary>
+        public static long U(long areaM2)
         {
-            if (tiles <= SMALL_MAX_TILES) return "small";
-            if (tiles <= MEDIUM_MAX_TILES) return "medium";
+            if (areaM2 <= 0L) return 0L;
+            return (long)Math.Round(areaM2 / U_AREA_M2, MidpointRounding.AwayFromZero);
+        }
+
+        public static string AreaClass(long u)
+        {
+            if (u < SMALL_MAX_U) return "small";
+            if (u <= MEDIUM_MAX_U) return "medium";
             return "large";
-        }
-
-        public static string AreaClassZh(string areaClass)
-        {
-            switch (areaClass)
-            {
-                case "small": return "小";
-                case "medium": return "中";
-                case "large": return "大";
-                default: return "全部";
-            }
-        }
-
-        /// <summary>菜单里那句「游戏内 1 个区块面积约多少㎡」。</summary>
-        public static string TileHintZh()
-        {
-            return "1 区块 ≈ " + TILE_AREA_M2.ToString("N0", CultureInfo.GetCultureInfo("zh-Hans")) + " ㎡";
         }
 
         /// <summary>面积档筛选：all 放行一切；**未知档位也当 all**（宁可多显示，也不要把列表筛成空白 —— 面板只会传四个已知值，真出现别的值说明前后端不同源，那更不该让玩家看到空列表）。</summary>
@@ -88,47 +89,67 @@ namespace BlueprintHub.Bpc
             return downloads * W_DOWNLOADS + likes * W_LIKES;
         }
 
-        // ---- 排序 ----
-        public static readonly string[] SortIds = { "weekly", "total", "uploadTime", "area", "name" };
-        public static readonly string[] SortLabelsZh = { "周热度", "总热度", "上传时间", "面积", "名称" };
+        // ---- 排序（0.4.0 按作者的 8 项）----
+        public static readonly string[] SortIds =
+        {
+            "weekly", "uploadTime", "createdDesc", "createdAsc", "areaDesc", "areaAsc", "nameAsc", "nameDesc"
+        };
 
         public static string DefaultSort => "weekly";
 
         /// <summary>
-        /// 需求 3：默认按周热度（7 天内热度最高排前）。周热度相同再落总热度，再落上传时间。
-        /// area: 大→小；name: 用 InvariantCulture 序数（中文排序交给面板用 localeCompare 处理，C# 这边只保证稳定）。
+        /// 最热门 = 7 天窗口内的加权热度（下载×3 + 点赞×1），同分落总热度再落更新时间。
+        /// 最近更新 = updatedAt 新→旧；最晚/最早创建 = createdAt 两个方向；
+        /// 面积两档按 ㎡ 比（u 是它的线性换算，比谁都一样）；名称 A→Z / Z→A。
+        /// 名称比较用 InvariantCulture 序数（中文分序交给面板按玩家语言处理，C# 这边只保证稳定可预期）。
         /// </summary>
         public static Comparison<ListItem> MakeComparator(string sort)
         {
             switch (sort)
             {
-                case "total":
-                    return (a, b) =>
-                    {
-                        int r = Cmp(b.HotTotal, a.HotTotal);
-                        if (r != 0) return r;
-                        r = CmpDt(b.UpdatedAt, a.UpdatedAt);
-                        return r != 0 ? r : CmpName(a.Name, b.Name);
-                    };
                 case "uploadTime":
                     return (a, b) =>
                     {
                         int r = CmpDt(b.UpdatedAt, a.UpdatedAt);
                         return r != 0 ? r : CmpName(a.Name, b.Name);
                     };
-                case "area":
+                case "createdDesc":
+                    return (a, b) =>
+                    {
+                        int r = CmpDt(b.CreatedAt, a.CreatedAt);
+                        return r != 0 ? r : CmpDt(b.UpdatedAt, a.UpdatedAt);
+                    };
+                case "createdAsc":
+                    return (a, b) =>
+                    {
+                        int r = CmpDt(a.CreatedAt, b.CreatedAt);
+                        return r != 0 ? r : CmpDt(a.UpdatedAt, b.UpdatedAt);
+                    };
+                case "areaDesc":
                     return (a, b) =>
                     {
                         int r = Cmp(b.AreaM2, a.AreaM2);
                         return r != 0 ? r : CmpDt(b.UpdatedAt, a.UpdatedAt);
                     };
-                case "name":
+                case "areaAsc":
+                    return (a, b) =>
+                    {
+                        int r = Cmp(a.AreaM2, b.AreaM2);
+                        return r != 0 ? r : CmpDt(b.UpdatedAt, a.UpdatedAt);
+                    };
+                case "nameAsc":
                     return (a, b) =>
                     {
                         int r = CmpName(a.Name, b.Name);
                         return r != 0 ? r : CmpDt(b.UpdatedAt, a.UpdatedAt);
                     };
-                default:   // weekly，也是「搜索结果默认按相关度」时的同分兜底
+                case "nameDesc":
+                    return (a, b) =>
+                    {
+                        int r = CmpName(b.Name, a.Name);
+                        return r != 0 ? r : CmpDt(b.UpdatedAt, a.UpdatedAt);
+                    };
+                default:   // weekly = 最热门，也是「搜索结果默认按相关度」时的同分兜底
                     return (a, b) =>
                     {
                         int r = Cmp(b.HotWeekly, a.HotWeekly);
@@ -317,10 +338,12 @@ namespace BlueprintHub.Bpc
         public long Downloads;
         public long HotWeekly;
         public long HotTotal;
-        public string UpdatedAt;      // ISO8601
+        public string UpdatedAt;      // ISO8601：最后一次内容变更（重新上传）的时间
+        public string CreatedAt;      // ISO8601：首次上传的时间（0.4.0 新增，「最晚/最早创建」两个排序用它）
         public string CoverUrl;       // 面板用的 coui:// 地址（下载完才有值）
         public string CoverRepoPath;  // 仓库相对路径 blueprints/&lt;author&gt;/&lt;bpId&gt;/&lt;file&gt;
-        public long Tiles;            // 面积折算成区块数（1 区块 = 388,129 ㎡）
+        public long Tiles;            // 面积折算成区块数（1 区块 ≈ 6065u）
+        public long U;                // 面积折算成 u（1u = 8m×8m = 64 ㎡）：面板上显示的就是这个数
         public int AssetCount;
         public string Description;
     }

@@ -22,6 +22,19 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LOCALE = fs.readFileSync(path.join(ROOT, "Locale.cs"), "utf8");
 const UI_SRC = path.join(ROOT, "UI", "src");
 const UISYS = path.join(ROOT, "Systems", "UI", "BlueprintHubUISystem.cs");
+/**
+ * 类别与排序的 id 清单**从 CatalogKit.cs 现读**，不在工具里手抄第二份 ——
+ * 0.3.x 就是因为这里抄了一份，改类别时工具反而变成假警报的源头。
+ */
+const KIT = fs.readFileSync(path.join(ROOT, "Bpc", "CatalogKit.cs"), "utf8");
+const idsOf = (name) => {
+  const m = new RegExp("string\\[\\]\\s+" + name + "\\s*=\\s*\\{([\\s\\S]*?)\\}").exec(KIT);
+  if (!m) throw new Error("CatalogKit.cs 里找不到 string[] " + name);
+  return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+};
+const CAT_IDS = ["all", ...idsOf("CategoryIds")];
+const SORT_IDS = idsOf("SortIds");
+if (!CAT_IDS.length || !SORT_IDS.length) throw new Error("CatalogKit.cs 的 id 表是空的");
 
 const fail = [];
 const ok = (m) => console.log("  ✓ " + m);
@@ -79,10 +92,10 @@ for (const f of files) {
   // C# 那边是拼出来的（"CAT_" + id / "SORT_" + id / "AREA_" + id / "AGO_" + unit.toUpperCase()）
   for (const m of src.matchAll(/"(CAT|DESC|AREA|SORT|AGO)_" *\+/g)) {
     const pre = m[1];
-    const ids = pre === "CAT" || pre === "DESC"
-      ? ["residential", "commercial", "industrial", "park", "education", "public", "mixed"]
+    const ids = pre === "CAT" ? CAT_IDS
+      : pre === "DESC" ? CAT_IDS.filter((x) => x !== "all")          // 「全部」按作者要求不配定义说明
       : pre === "AREA" ? ["all", "small", "medium", "large"]
-      : pre === "SORT" ? ["weekly", "total", "uploadTime", "area", "name"]
+      : pre === "SORT" ? SORT_IDS
       : ["NOW", "MIN", "HOUR", "DAY", "MONTH", "YEAR"];      // AGO_* 表里用大写档名
     for (const id of ids) used.add(pre + "_" + id);
   }
@@ -100,7 +113,9 @@ if (!unused.length) ok("表里没有躺着没人用的键");
 else bad("这些词条没人引用（要么删掉，要么确实是漏接）: " + unused.join(", "));
 
 console.log("\n[3] 模板占位符只允许已知的几个");
-const ALLOWED = new Set(["tiles", "m2", "wan", "km2", "n", "total", "max", "key", "tilem2"]);
+// 0.4.0 的面积一律按 u 讲：m2 / wan / km2 / tilem2 那四个占位符随「㎡ 说法」一起退役，
+// 留在白名单里只会让旧写法悄悄过关，所以这里同时是「删过的项目不许回来」的清单。
+const ALLOWED = new Set(["u", "tiles", "tileu", "cellm", "n", "total", "max", "key", "path", "err"]);
 const stray = [];
 for (const [name, tbl] of [["zh", ZH], ["tw", TW], ["en", EN]]) {
   for (const [k, v] of Object.entries(tbl)) {
@@ -109,6 +124,23 @@ for (const [name, tbl] of [["zh", ZH], ["tw", TW], ["en", EN]]) {
 }
 if (!stray.length) ok("三份表里所有 {占位符} 都在允许集合（" + [...ALLOWED].join(", ") + "）");
 else bad("未知占位符（C# 不会发这个数）: " + stray.join(", "));
+
+console.log("\n[3b] 词条里的类别/排序 id 必须与 CatalogKit 的 id 表一模一样");
+{
+  const drift = [];
+  for (const k of Object.keys(ZH)) {
+    const m = /^(CAT|DESC|SORT)_([a-z][a-z0-9_]*)$/.exec(k);
+    if (!m) continue;
+    const id = m[2];
+    if (m[1] === "CAT" && !CAT_IDS.includes(id)) drift.push(k + "（CatalogKit.CategoryIds 里没有 " + id + "）");
+    if (m[1] === "DESC" && !CAT_IDS.filter((x) => x !== "all").includes(id)) drift.push(k + "（这是个没有对应类别的定义）");
+    if (m[1] === "SORT" && !SORT_IDS.includes(id)) drift.push(k + "（CatalogKit.SortIds 里没有 " + id + "）");
+  }
+  for (const id of CAT_IDS) if (!ZH["CAT_" + id]) drift.push("CAT_" + id + "（词条缺失）");
+  for (const id of SORT_IDS) if (!ZH["SORT_" + id]) drift.push("SORT_" + id + "（词条缺失）");
+  if (!drift.length) ok(`CAT_/DESC_/SORT_ 与 id 表互相对得上（类别 ${CAT_IDS.length} · 排序 ${SORT_IDS.length}）`);
+  else bad("词条与 id 表漂移: " + drift.join(", "));
+}
 
 console.log("\n[4] 前端不许硬编码玩家可见文案");
 // 假名 + 中日韩统一表文 + 扩展 A + 兼容表文（\u 转义写死，避免源码里出现裸字符被编辑器改坏）
@@ -137,6 +169,20 @@ for (const prop of ["PanelOpacitySlider", "TogglePanelBinding", "AboutVersion", 
     bad("Locale.cs 给 " + prop + " 配了词，Setting.cs 却没有这个属性");
 }
 ok("选项页 7 个属性的词条与属性名对得上");
+
+console.log("\n[6] 版本号三处必须一模一样");
+// 游戏里看到的（UI/mod.json）、面板顶栏看到的（kVersion）、工坊页看到的（PublishConfiguration ModVersion）
+// 三个数一旦漂移，玩家报「我这是 0.4.0 啊」而日志里是 0.3.1，排查直接废掉一半。
+{
+  const mod = fs.readFileSync(path.join(ROOT, "BlueprintHubMod.cs"), "utf8");
+  const uiMod = fs.readFileSync(path.join(ROOT, "UI", "mod.json"), "utf8");
+  const pub = fs.readFileSync(path.join(ROOT, "Properties", "PublishConfiguration.xml"), "utf8");
+  const k = (mod.match(/kVersion\s*=\s*"([^"]+)"/) || [])[1] || "";
+  const u = (uiMod.match(/"version"\s*:\s*"([^"]+)"/) || [])[1] || "";
+  const p = (pub.match(/<ModVersion Value="([^"]*)"/) || [])[1] || "";
+  if (k && k === u && k === p) ok(`三处都是 ${k}`);
+  else bad(`版本漂移：kVersion=${k} / UI/mod.json=${u} / PublishConfiguration=${p}`);
+}
 
 console.log("\n" + (fail.length ? "✗ 文案门禁未过：" + fail.length + " 条" : "✓ 文案门禁全绿"));
 process.exit(fail.length ? 1 : 0);

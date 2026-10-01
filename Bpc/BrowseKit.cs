@@ -150,9 +150,13 @@ namespace BlueprintHub.Bpc
             x.HotWeekly = it.Long("hotWeekly");
             x.HotTotal = it.Long("hotTotal");
             x.UpdatedAt = it.Str("updatedAt");
+            x.CreatedAt = it.Str("createdAt");
             x.CoverRepoPath = it.Str("cover");
             x.AssetCount = it.Int("assetCount");
             x.Description = it.Str("desc");
+            // u 优先读目录里算好的值；老目录/镜像没这个字段时按 ㎡ 现算，两边永不分叉
+            long u = it.Long("u");
+            x.U = u > 0L ? u : CatalogKit.U(x.AreaM2);
             return x;
         }
 
@@ -252,10 +256,24 @@ namespace BlueprintHub.Bpc
         }
 
         // ---------- 展示文案 ----------
-        // 0.3.0 的分工：桥层往面板发的是**数据 + 词条键**，句子归游戏本地化词典（见 Locale.BuildPanelMap）。
+        // 桥层往面板发的是**数据 + 词条键**，句子归游戏本地化词典（见 Locale.BuildPanelMap）。
         // 下面这几个 `*Value` 只负责「把数算成一条与语言无关的数字串」（千分位用不变文化、小数点用句点），
-        // 前端把它塞进模板的 {tiles} / {wan} / {km2} / {m2} 占位符。
-        // 原来那几个 *Zh 函数保留：它们是这套算法的参照实现，T3 用「同一条输入必须推出同一句文案」把两边钉在一起。
+        // 前端把它塞进模板的 {u} / {tiles} / {tileu} 占位符。
+        // 0.4.0：面积一律按 u 讲（作者要求，1u = 8m×8m），㎡ / 万㎡ / km² 那套从界面上全部撤掉，
+        // 只保留 TilesValue 用来讲「一块地图区块有多大」；*Label 系列是参照实现，T3 用
+        // 「同一条输入必须推出同一个数」把它们和 *Value 钉在一起。
+
+        /// <summary>u 数（不带单位）：整数，不加千分位 —— 卡片脚注只有百来 rem 宽。</summary>
+        public static string UValue(long areaM2)
+        {
+            return CatalogKit.U(areaM2).ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>u 数带单位（参照实现，T3 拿它当判据）。</summary>
+        public static string ULabel(long areaM2)
+        {
+            return UValue(areaM2) + "u";
+        }
 
         /// <summary>区块数（不带单位）：整块不写小数，非整块写一位，≥100 不带小数。</summary>
         public static string TilesValue(long areaM2, double tileAreaM2)
@@ -266,25 +284,26 @@ namespace BlueprintHub.Bpc
             return t.ToString("0.#", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>以 万㎡ 为单位、不带单位词的数字串（中文模板用）。</summary>
-        public static string WanValue(long areaM2)
+        /// <summary>「1 地图区块 ≈ 6065u」里那个数：由 TILE_AREA_M2 / U_AREA_M2 现算，不写死。</summary>
+        public static string TileUValue()
         {
-            if (areaM2 < 10000L) return areaM2.ToString("N0", CultureInfo.InvariantCulture);
-            return (areaM2 / 10000d).ToString(areaM2 % 10000L == 0L ? "0" : "0.#", CultureInfo.InvariantCulture);
+            return CatalogKit.TileInU.ToString("0.#", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>以 km² 为单位、不带单位词的数字串（英文模板用；小于 0.1 km² 退回 ㎡ 由模板自己选）。</summary>
-        public static string Km2Value(long areaM2)
+        /// <summary>完整面积（详情页 / 悬停用）：「1234u · 2 区块」。</summary>
+        public static string AreaTextFull(long areaM2, double tileAreaM2)
         {
-            double km2 = areaM2 / 1000000d;
-            if (km2 < 0.1d) return km2.ToString("0.00", CultureInfo.InvariantCulture);
-            return km2.ToString("0.#", CultureInfo.InvariantCulture);
+            return ULabel(areaM2) + " · " + TilesLabel(areaM2, tileAreaM2);
         }
 
-        /// <summary>完整 ㎡ 数字串（带不变文化千分位）。</summary>
-        public static string M2Value(long areaM2)
+        /// <summary>区块数标签：整块不写小数，非整块写一位（「0.5 区块」）。</summary>
+        public static string TilesLabel(long areaM2, double tileAreaM2)
         {
-            return areaM2.ToString("N0", CultureInfo.InvariantCulture);
+            double t = tileAreaM2 > 0 ? areaM2 / tileAreaM2 : 0d;
+            string v = t >= 100d ? t.ToString("F0", CultureInfo.InvariantCulture)
+                : Math.Abs(t - Math.Round(t)) < 0.05d ? ((long)Math.Round(t)).ToString(CultureInfo.InvariantCulture)
+                : t.ToString("0.#", CultureInfo.InvariantCulture);
+            return v + " 区块";
         }
 
         /// <summary>
@@ -306,35 +325,6 @@ namespace BlueprintHub.Bpc
             if (d.TotalDays < 365d) { unit = "month"; n = (int)(d.TotalDays / 30d); return true; }
             unit = "year"; n = (int)(d.TotalDays / 365d);
             return true;
-        }
-
-        /// <summary>完整面积（详情页 / tooltip 用）：「8 区块 · 3,105,032 ㎡」。</summary>
-        public static string AreaTextFull(long areaM2, double tileAreaM2)
-        {
-            return TilesLabel(areaM2, tileAreaM2) + " · " + areaM2.ToString("N0", CultureInfo.InvariantCulture) + " ㎡";
-        }
-
-        /// <summary>
-        /// 卡片脚注的紧凑形态：「8 区块 · 310.5万㎡」。
-        /// 为什么不用带千分位的完整值：卡片只有 176rem 宽，脚注里还要塞点赞与套用两个可点计数，
-        /// 实拍会被截成「3,105,03…」（预览台抓到的）。万㎡ 是中文玩家本来就熟的单位。
-        /// </summary>
-        public static string AreaTextZh(long areaM2, double tileAreaM2)
-        {
-            string wan = areaM2 >= 10000L
-                ? (areaM2 / 10000d).ToString(areaM2 % 10000L == 0L ? "0" : "0.#", CultureInfo.InvariantCulture) + "万㎡"
-                : areaM2.ToString("N0", CultureInfo.InvariantCulture) + "㎡";
-            return TilesLabel(areaM2, tileAreaM2) + " · " + wan;
-        }
-
-        /// <summary>区块数标签：整块不写小数，非整块写一位（「0.5 区块」）。</summary>
-        public static string TilesLabel(long areaM2, double tileAreaM2)
-        {
-            double t = tileAreaM2 > 0 ? areaM2 / tileAreaM2 : 0d;
-            string v = t >= 100d ? t.ToString("F0", CultureInfo.InvariantCulture)
-                : Math.Abs(t - Math.Round(t)) < 0.05d ? ((long)Math.Round(t)).ToString(CultureInfo.InvariantCulture)
-                : t.ToString("0.#", CultureInfo.InvariantCulture);
-            return v + " 区块";
         }
 
         /// <summary>相对时间：列表脚注放不下长日期。</summary>

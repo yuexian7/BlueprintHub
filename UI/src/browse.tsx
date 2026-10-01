@@ -9,23 +9,32 @@ import { LArgs, Translate, prettyCount } from "./l10n";
  *  · 句子和单位词一律来自 t(slug)（游戏本地化词典），本文件里**一个玩家可见的中英文字都不许出现**。
  */
 
-export const SideBar = ({ st, t }: { st: UiState; t: Translate }) => (
-  <div className="bph-side">
-    <div className="bph-side-h">{t("TYPE_TITLE")}</div>
-    {st.categories.map((cat) => (
-      <div
-        key={cat.id}
-        className={"bph-cat" + (cat.selected ? " bph-cat-on" : "")}
-        title={t(cat.descSlug)}
-        onClick={() => cmd("cat", cat.id)}
-      >
-        <span className="bph-cat-dot" style={{ background: CAT_COLOR[cat.id] || C.accent }} />
-        <span className="bph-cat-name">{cat.slug ? t(cat.slug) : cat.label}</span>
-        <span className="bph-cat-n">{cat.count > 0 ? String(cat.count) : ""}</span>
-      </div>
-    ))}
-  </div>
-);
+/**
+ * 左栏：类型清单 + **选中那一类的定义说明**（需求 9）。
+ * 说明放在清单下方而不是面板顶部：0.3.1 之前它是跟着标题走的，实机上那一行根本没显示出来，
+ * 而且左栏本来就是「看名字选一类」的地方，定义紧贴名字列表才读得下去。
+ */
+export const SideBar = ({ st, t }: { st: UiState; t: Translate }) => {
+  const descSlug = st.catDescSlug || "";
+  return (
+    <div className="bph-side">
+      <div className="bph-side-h">{t("TYPE_TITLE")}</div>
+      {st.categories.map((cat) => (
+        <div
+          key={cat.id}
+          className={"bph-cat" + (cat.selected ? " bph-cat-on" : "")}
+          title={cat.descSlug ? t(cat.descSlug) : (cat.slug ? t(cat.slug) : cat.label)}
+          onClick={() => cmd("cat", cat.id)}
+        >
+          <span className="bph-cat-dot" style={{ background: CAT_COLOR[cat.id] || C.accent }} />
+          <span className="bph-cat-name">{cat.slug ? t(cat.slug) : cat.label}</span>
+          <span className="bph-cat-n">{cat.count > 0 ? String(cat.count) : ""}</span>
+        </div>
+      ))}
+      {descSlug ? <div className="bph-side-desc">{t(descSlug)}</div> : null}
+    </div>
+  );
+};
 
 const Chevron = () => (
   <svg width="10" height="10" viewBox="0 0 24 24" style={{ marginLeft: "5rem" }} xmlns="http://www.w3.org/2000/svg">
@@ -33,43 +42,44 @@ const Chevron = () => (
   </svg>
 );
 
+/**
+ * 面积/排序两个下拉（需求 5）：**开合状态不在自己肚子里**，由 MenuBar 统一持有 openId。
+ * 于是点另一个 = openId 变成另一个（当前这个自动收起），点别处 = 遮罩把 openId 清空。
+ * 遮罩是 position:fixed 铺满屏幕的一层透明 div（Cohtml 里 blur 时序不稳，实测这层比 blur 可靠），
+ * .bph-drop 自己 z-index 高于它，菜单才不会被遮罩盖住。
+ */
 export const Dropdown = ({
-  label, current, options, onPick, t,
+  label, current, options, onPick, t, id, open, onToggle,
 }: {
   label: string;
   current: string;
   options: Option[];
   onPick: (id: string) => void;
   t: Translate;
+  id: string;
+  open: boolean;
+  onToggle: (id: string | null) => void;
 }) => {
-  const [open, setOpen] = useState(false);
   const active = options.filter((o) => o.id === current)[0] || options[0];
   return (
     <div className="bph-drop">
-      <div className="bph-drop-btn" onClick={() => setOpen(!open)}>
+      <div className="bph-drop-btn" onClick={() => onToggle(open ? null : id)}>
         <span className="bph-drop-cur">{label}</span>
         <span>{active ? (active.slug ? t(active.slug) : active.label) : ""}</span>
         <Chevron />
       </div>
       {open ? (
-        <>
-          {/* 透明遮罩负责「点别处就收起」：Cohtml 里 blur 事件时序不稳，用一层覆盖全屏的 div 更可靠 */}
-          <div
-            style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", zIndex: 590, pointerEvents: "auto" }}
-            onClick={() => setOpen(false)}
-          />
-          <div className="bph-drop-menu">
-            {options.map((o) => (
-              <div
-                key={o.id}
-                className={"bph-drop-item" + (o.id === current ? " bph-drop-item-on" : "")}
-                onClick={() => { setOpen(false); onPick(o.id); }}
-              >
-                {o.slug ? t(o.slug) : o.label}
-              </div>
-            ))}
-          </div>
-        </>
+        <div className="bph-drop-menu">
+          {options.map((o) => (
+            <div
+              key={o.id}
+              className={"bph-drop-item" + (o.id === current ? " bph-drop-item-on" : "")}
+              onClick={() => { onToggle(null); onPick(o.id); }}
+            >
+              {o.slug ? t(o.slug) : o.label}
+            </div>
+          ))}
+        </div>
       ) : null}
     </div>
   );
@@ -79,6 +89,7 @@ export const MenuBar = ({ st, t }: { st: UiState; t: Translate }) => {
   const m = st.menu!;
   const [text, setText] = useState(m.search);
   const [focus, setFocus] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
   // C# 改了条件（例如点「清空筛选」）时把输入框拉回来，否则前端会留着后端已经不用的词
@@ -92,7 +103,9 @@ export const MenuBar = ({ st, t }: { st: UiState; t: Translate }) => {
 
   return (
     <div className="bph-menu">
-      <span className="bph-tile">{t("TILE_HINT", { tilem2: st.tileM2 || "388,129" })}</span>
+      {openId ? <div className="bph-drop-scrim" onClick={() => setOpenId(null)} /> : null}
+      {/* 需求 6 的那句换算：1u 是多大的单元格、一个地图区块等于多少 u。数字全由 C# 按常量算 */}
+      <span className="bph-tile">{t("TILE_HINT", { cellm: st.cellM || "8", tileu: st.tileU || "6070.4" })}</span>
       {/* :focus-within 在 Cohtml 里不认（实机日志点名），所以高亮框靠自己的 focus 状态类 */}
       <div className={"bph-search" + (focus ? " bph-search-on" : "")}>
         <IconSearch size={15} />
@@ -106,8 +119,10 @@ export const MenuBar = ({ st, t }: { st: UiState; t: Translate }) => {
         />
       </div>
       <div className="bph-spacer" />
-      <Dropdown label={t("AREA_TITLE")} current={m.area} options={m.areas} onPick={(id) => cmd("area", id)} t={t} />
-      <Dropdown label={t("SORT_TITLE")} current={m.sort} options={m.sorts} onPick={(id) => cmd("sort", id)} t={t} />
+      <Dropdown id="area" open={openId === "area"} onToggle={setOpenId}
+        label={t("AREA_TITLE")} current={m.area} options={m.areas} onPick={(id) => cmd("area", id)} t={t} />
+      <Dropdown id="sort" open={openId === "sort"} onToggle={setOpenId}
+        label={t("SORT_TITLE")} current={m.sort} options={m.sorts} onPick={(id) => cmd("sort", id)} t={t} />
     </div>
   );
 };
@@ -149,8 +164,8 @@ export const Card = ({ it, t, lang }: { it: ItemCard; t: Translate; lang: string
         {it.cover ? <img src={it.cover} alt="" /> : <CoverPlaceholder cats={it.cats || ""} id={it.id} />}
         <span className="bph-catbar" style={{ background: catColor }} />
         <div className="bph-strip">
-          {/* title 是玩家看得见摸得着的悬停提示，必须走词条：0.3.0 这里是拼死串的「388,129 ㎡」 */}
-          <span className="bph-area" title={t("CARD_AREA_TINY", { m2: it.m2 })}>{areaText}</span>
+          {/* title 是玩家看得见摸得着的悬停提示，必须走词条；面积与卡片脚注同一句（需求 6：按 u 讲） */}
+          <span className="bph-area" title={t(areaSlugFor(it), areaArgs(it))}>{areaText}</span>
           <div className={"bph-stat bph-stat-push" + (it.liked ? " bph-stat-on" : "")}
             title={it.liked ? t("CARD_LIKED_TIP") : t("CARD_LIKE_TIP")}
             onClick={(e) => { e.stopPropagation(); cmd("like", it.id); }}>

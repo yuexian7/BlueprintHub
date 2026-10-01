@@ -10,11 +10,17 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- 同一份源码两边编，不写桩不复制（Playbook 步骤 4 / 硬规则 14）：
-		     Bpc/ 下这三个文件一个游戏类型都不许出现，所以能直接 net8 编起来跑断言。 -->
+		     Bpc/ 下这些文件一个游戏类型都不许出现，所以能直接 net8 编起来跑断言。
+		     0.4.0 起多了采集侧的四个：CaptureModel（数据）/ BpcCodec（bpc1 编解码）/
+		     MetaWriter（meta.json）/ CoverSvg（预览 SVG）—— 全都要能被离线钉住。 -->
 		<Compile Include="..\..\Bpc\JsonKit.cs" />
 		<Compile Include="..\..\Bpc\CatalogKit.cs" />
 		<Compile Include="..\..\Bpc\BrowseKit.cs" />
 		<Compile Include="..\..\Bpc\BlueprintId.cs" />
 		<Compile Include="..\..\Bpc\PanelKeyKit.cs" />
+		<Compile Include="..\..\Bpc\CaptureModel.cs" />
+		<Compile Include="..\..\Bpc\BpcCodec.cs" />
+		<Compile Include="..\..\Bpc\MetaWriter.cs" />
+		<Compile Include="..\..\Bpc\CoverSvg.cs" />
 	</ItemGroup>
 </Project>

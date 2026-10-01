@@ -62,10 +62,8 @@ export interface ItemCard {
   liked: boolean;
   used: boolean;
   areaM2: number;
+  u: string;            // 面积（单位 u = 一个 8m×8m 单元格）—— 0.4.0 起界面只讲 u
   tiles: string;        // 区块数（已按语言无关形态算好）
-  m2: string;           // 千分位完整 ㎡
-  wan: string;          // 万㎡ 的数值部分
-  km2: string;          // km² 的数值部分
   areaClass: string;
   areaClassSlug: string;
   agoUnit: string;      // now|min|hour|day|month|year（""= 没有可信时间）
@@ -73,6 +71,23 @@ export interface ItemCard {
   assets: number;
   desc: string;
   cats: string;         // 原始 id，逗号分隔：颜色与占位图按它取
+}
+
+export interface AccountState {
+  loggedIn: boolean;
+  avatar: string;       // coui:// 地址；空 = 还没拿到（未登录或平台没给）
+  author: string;       // 本机署名（不是 Paradox 账号名，见 UploadService.AuthorName 的注释）
+}
+
+export interface UploadState {
+  phase: "idle" | "busy" | "done" | "failed" | string;
+  detail: string;       // 失败时的键：not-district / no-polygon / too-big:… / empty / capture:…
+  path: string;         // 草稿目录绝对路径
+  bpId: string;
+  name: string;
+  cover: string;        // coui:// 预览
+  missing: number;      // 没采到的项数
+  bytes: number;
 }
 
 export interface UiState {
@@ -89,7 +104,13 @@ export interface UiState {
   statusDetail: string;         // 一行技术信息（镜像名 / 文件 / 异常类型），不是句子
   truncated?: boolean;
   maxItems?: number;
-  tileM2?: string;
+  cellM?: string;               // 1u 的边长（米），换算提示句子里的那个 8
+  tileU?: string;               // 1 地图区块 ≈ 多少 u（C# 由常量算，不写死）
+  catSlug?: string;             // 当前选中类型的词条键
+  catDescSlug?: string;         // 当前选中类型的定义词条键（「全部」时为空）
+  account?: AccountState;
+  hooks?: { districtSection: boolean };
+  upload?: UploadState;
   toast?: { id: number; slug: string; kind: string };
   categories: CategoryCell[];
   menu?: {
@@ -120,9 +141,20 @@ export const EMPTY_STATE: UiState = {
   status: "loading",
   statusSlug: "STATUS_LOADING",
   statusDetail: "",
+  // 兜底形状 = C# Build() 的同一份口径：「全部」在最上面，其下 7 类（需求 8），排序 8 项（需求 7）。
   categories: [
-    "residential", "commercial", "industrial", "park", "education", "public", "mixed",
-  ].map((id) => ({ id, slug: "CAT_" + id, descSlug: "DESC_" + id, label: id, count: 0, selected: false })),
+    "all", "residential", "commercial", "industrial", "park", "education", "transit", "public_service",
+  ].map((id) => ({
+    id, slug: "CAT_" + id, descSlug: id === "all" ? "" : "DESC_" + id,
+    label: id, count: 0, selected: id === "all",
+  })),
+  catSlug: "CAT_all",
+  catDescSlug: "",
+  cellM: "8",
+  tileU: "6070.4",
+  account: { loggedIn: false, avatar: "", author: "" },
+  hooks: { districtSection: true },
+  upload: { phase: "idle", detail: "", path: "", bpId: "", name: "", cover: "", missing: 0, bytes: 0 },
   menu: {
     search: "",
     area: "all",
@@ -137,10 +169,13 @@ export const EMPTY_STATE: UiState = {
     sortSlug: "SORT_weekly",
     sorts: [
       { id: "weekly", slug: "SORT_weekly", label: "weekly" },
-      { id: "total", slug: "SORT_total", label: "total" },
       { id: "uploadTime", slug: "SORT_uploadTime", label: "uploadTime" },
-      { id: "area", slug: "SORT_area", label: "area" },
-      { id: "name", slug: "SORT_name", label: "name" },
+      { id: "createdDesc", slug: "SORT_createdDesc", label: "createdDesc" },
+      { id: "createdAsc", slug: "SORT_createdAsc", label: "createdAsc" },
+      { id: "areaDesc", slug: "SORT_areaDesc", label: "areaDesc" },
+      { id: "areaAsc", slug: "SORT_areaAsc", label: "areaAsc" },
+      { id: "nameAsc", slug: "SORT_nameAsc", label: "nameAsc" },
+      { id: "nameDesc", slug: "SORT_nameDesc", label: "nameDesc" },
     ],
     page: 1,
     pages: 0,
@@ -182,13 +217,24 @@ export function useUiState(): UiState {
 /** 7 类色标：唯一出处是 icons.tsx 的 CATEGORY_COLOR（前端两处共用一份，改色不会漏）。 */
 export const CAT_COLOR: { [id: string]: string } = CATEGORY_COLOR;
 
-/** 一条卡片的面积文案：小于一格的东西讲「㎡」，其余讲「区块 + 万㎡/km²」。 */
+/**
+ * 卡片脚注的面积：不足 1u 的东西讲「不足 1u」，其余讲「Nu · M 区块」。
+ * 判据用 u 而不是 ㎡（需求 6）：1u = 64 ㎡，所以「不到一格」= round(areaM2/64) < 1。
+ */
+export const U_AREA_M2 = 64;    // 与 CatalogKit.U_AREA_M2 同值；只用来兜「C# 没给 u 字段」的老目录
+
+export function uOf(it: ItemCard): number {
+  const n = parseInt(it.u || "", 10);
+  if (!isNaN(n)) return n;
+  return it.areaM2 > 0 ? Math.round(it.areaM2 / U_AREA_M2) : 0;
+}
+
 export function areaSlugFor(it: ItemCard): string {
-  return it.areaM2 > 0 && it.areaM2 < 10000 ? "CARD_AREA_TINY" : "CARD_AREA";
+  return uOf(it) < 1 ? "CARD_AREA_TINY" : "CARD_AREA";
 }
 
 export function areaArgs(it: ItemCard): { [k: string]: string } {
-  return { tiles: it.tiles, m2: it.m2, wan: it.wan, km2: it.km2 };
+  return { u: it.u || String(uOf(it)), tiles: it.tiles || "0" };
 }
 
 /**

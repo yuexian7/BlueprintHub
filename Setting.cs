@@ -32,7 +32,7 @@ namespace BlueprintHub
         public static BlueprintHubSetting Instance;
 
         /// <summary>面板透明度热路径镜像（0~1；UI 每帧读它，不走属性链 —— Playbook 硬规则 15）。</summary>
-        public static volatile float s_PanelOpacity = 0.8f;
+        public static volatile float s_PanelOpacity = 0.9f;
 
         /// <summary>
         /// 入口按钮上显示的那个键名（「蓝图工坊  K」这种）。没设键就是空串，前端就不画那一格。
@@ -40,7 +40,7 @@ namespace BlueprintHub
         /// </summary>
         public static string BoundKeyText = string.Empty;
 
-        private float m_PanelOpacity = 0.8f;
+        private float m_PanelOpacity = 0.9f;
 
 #nullable enable
         private ProxyBinding m_TogglePanel;
@@ -152,8 +152,8 @@ namespace BlueprintHub
 
         public override void SetDefaults()
         {
-            m_PanelOpacity = 0.8f;              // 需求 2：50% 太透，默认改 80%
-            s_PanelOpacity = 0.8f;
+            m_PanelOpacity = 0.9f;              // 0.3.0 定 80%；0.4.0 作者要 90%
+            s_PanelOpacity = 0.9f;
             // 目前没有需要重置的二次确认类设置（见上面 M4 那条注释）
         }
 
@@ -164,7 +164,7 @@ namespace BlueprintHub
         /// </summary>
         private static float ClampOpacity(float v)
         {
-            if (float.IsNaN(v) || float.IsInfinity(v)) return 0.8f;
+            if (float.IsNaN(v) || float.IsInfinity(v)) return 0.9f;
             if (v > 1.01f) v /= 100f;
             if (v < 0f) return 0f;
             if (v > 1f) return 1f;

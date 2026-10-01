@@ -14,7 +14,7 @@
 ## 设置项（游戏选项 → 模组）
 | 项 | 默认 | 说明 |
 |---|---|---|
-| 面板透明度 | 80% | 0~100%，1% 一档；调的是面板**背景**，卡片与文字不受影响 |
+| 面板透明度 | 90% | 0~100%，1% 一档；调的是面板**背景**，卡片与文字不受影响（0.4.0 把默认从 80% 提到 90%） |
 | 打开 / 关闭蓝图工坊 | 未绑定 | 默认空，由玩家自己设；左上角那颗按钮常驻可用 |
 | 关于 | — | 版本 / 作者 yuexian / Ko-fi / 论坛 / RAINBOW 官网 |
 
@@ -29,7 +29,9 @@ dotnet build -c Release                           # 模组：0 错误；后处�
 dotnet run --project tests/t3 -c Release          # 离线 T3：纯逻辑断言（零游戏 DLL、零网络）
 node tools/check-copy.mjs                         # 文案门禁：三份词条表键集一致 + 前端零硬编码文案
 node tools/check-css.mjs                          # CSS 门禁：Cohtml 吃不下的写法一律拦下（R1~R7，见文件头）
-node tools/dev-preview.mjs                        # 无头实拍面板：http://127.0.0.1:8765/（?demo=15 造布局，?closed=1 看入口方块）
+node tools/dev-preview.mjs &                       # 预览台（默认 8765，被占会顺延并把实际地址打在日志里）
+node tools/verify-ui.mjs                          # 交互后状态的 DOM 断言（下拉互斥、上传四态、词条没漏…）
+node tools/shot.mjs                               # 同一批状态实拍成 PNG，给人眼复核布局
 ```
 数据面（改契约时要跑）：
 ```bash
@@ -37,7 +39,7 @@ cd ../blueprinthub-workshop && npm ci && npm run check     # 校验；npm run bu
 ```
 
 ## 面板里的数据从哪来（0.3.0 起没有内置模板）
-面板**只显示工坊里的真蓝图**。工坊是空库时面板就是空态，这是正常状态，不是坏了 —— 官方测试模板由作者自己在游戏里导出上传（M3）。
+面板**只显示工坊里的真蓝图**。工坊是空库时面板就是空态，这是正常状态，不是坏了 —— 测试蓝图由作者自己在游戏里对着市辖区点「上传蓝图」导出（0.4.0 起这条通了：草稿箱 → `scripts/ingest-draft.mjs` → 工坊）。
 开发期想造一批假条目只为拍布局，两条路，都必须显式表态：
 ```bash
 node tools/seed-dev-catalog.mjs --yes-dev-data    # 往 workshop 灌假蓝图 → 跑真 builder → 产物落本机 dev 覆盖目录
@@ -49,14 +51,15 @@ node tools/dev-preview.mjs                        # 不起游戏、不写任何�
 
 ## 目录
 ```
-Bpc/         纯逻辑：JSON、分类/面积档/排序/相关度/镜像轮转/失败分类/质心/相对高程/ID/词条键 —— 一个游戏类型都不碰，可离线测
-Workshop/    浏览态（拉 index → 拉分页 → 本地筛选排序分页 → 封面预热 → 本机去重计数）
-Platform/    数据面客户端（复用 HttpClient、12s 超时、三镜像并发探路、哈希复核）、本地目录口径、本机身份
-Systems/UI/  Cohtml 桥：一条 GetState（C# 是唯一真值源）+ 一条 Cmd（前端只回报动作）
+Bpc/         纯逻辑：JSON、分类/面积档/排序/相关度/镜像轮转/失败分类/质心/相对高程/ID/词条键 + 采集模型与 BPC1 编码/元数据/封面 —— 一个游戏类型都不碰，可离线测
+Workshop/    浏览态（拉 index → 拉分页 → 本地筛选排序分页 → 封面预热 → 本机去重计数）+ 采集（DistrictCapture）+ 出草稿（UploadService）
+Platform/    数据面客户端（复用 HttpClient、12s 超时、三镜像并发探路、哈希复核）、本地目录口径、本机身份、账号态（只读官方登录，不存任何凭据）
+Systems/UI/  Cohtml 桥：一条 GetState（C# 是唯一真值源）+ 一条 Cmd（前端只回报动作）；市辖区面板条目（InfoSectionBase）
 UI/          React + webpack 面板源码（入口方块 = 原版 FloatingButton + 随包 images/*.svg 图案）
-Locale.cs    全部玩家可见文案：选项页 + 面板 61 条 × zh-HANS / zh-HANT / en-US，其余 9 个官方语言回退 en
-tools/       check-copy.mjs 文案门禁 · check-css.mjs CSS 门禁 · dev-preview.mjs 预览台 · seed-dev-catalog.mjs 开发覆盖
-tests/t3/    离线回归壳：与 Bpc/ 共用同一份源码，不写桩不复制
+Locale.cs    全部玩家可见文案：选项页 + 面板 82 条 × zh-HANS / zh-HANT / en-US，其余 9 个官方语言回退 en
+tools/       check-copy · check-css · dev-preview 预览台 · verify-ui DOM 断言 · shot 实拍 · seed-dev-catalog 开发覆盖
+scripts/     ingest-draft.mjs 草稿投递 · pull-live.mjs 线上核对 · publish.mjs 推模组
+tests/t3/    离线回归壳：与 Bpc/ 共用同一份源码，不写桩不复制；`-- --draft <目录>` 用真编码链造一张草稿
 (同级仓库) ../blueprinthub-workshop/   公共数据面：schema、catalog 生成器、容量与限速实据
 research/    反编译与取证产物（不进 git、不编进产物）
 ```
@@ -100,7 +103,7 @@ stream 6 = 异常记录（`code` 在 +8、`ExceptionAddress` 在 +24、参数从
    按 `bag[key]` 取值取不到东西，这个坑在兄弟模组的旧写法里踩过一次。
 
 ## 兼容性
-零 Harmony：不与任何模组抢补丁、不引入共享 `0Harmony.dll` 的版本抢占问题。唯一可能引入 Harmony 的地方是市辖区面板那颗上传按钮（M3），届时按既有模组的方式带 2.3.3 并单独说明影响范围。
+零 Harmony：不与任何模组抢补丁、不引入共享 `0Harmony.dll` 的版本抢占问题。0.4.0 把市辖区面板那颗上传按钮也做成了零侵入（继承 `InfoSectionBase` + `AddBottomSection`，见下面的 FACT 行），所以整支模组仍然没有 Harmony 依赖 —— 游戏大版本改了内部实现，最坏结果是那颗按钮不出现，而主面板会显示兜底入口（`hooks.districtSection` 报假阳性这件事已被 `cmd("hookok")` 堵掉）。
 
 ## 已定死的机器事实（细节别靠记忆）
 | 结论 | 证据 |
@@ -123,15 +126,45 @@ stream 6 = 异常记录（`code` 在 +8、`ExceptionAddress` 在 +24、参数从
 | 原版强调色 `--accentColorNormal:#4bc3f1`、文本 `--normalTextColor:#F0FBFF`、正/警/负 `#8bdb46 / #ffa42d / #e95f4a` | `Cities2_Data/Content/Game/UI/index.css` |
 | `useLocalization()` → `{translate(key,fallback), unitSettings}`，不是扁平词典 | 游戏 UI bundle `index.js` 里 `dc()`（偏移 ≈433500） |
 | 官方术语：District=市辖区、Zone=功能区、Prop=设施、Industrial=工业、Map Tile=区块、Sort by=排序方式、UI Transparency=UI透明度 | `ToolModeMemory/research/locale/zh_en.json`（官方语言包导出） |
+| 往市辖区面板塞条目 = 继承 `Game.UI.InGame.InfoSectionBase` + `SelectedInfoUISystem.AddBottomSection(...)`（:255，底部那排就是删除键所在的 footer），**不需要 Harmony**；`InfoSectionBase.Write()` 用 `writer.TypeBegin(GetType().FullName)` 交出类型名 ⇒ 前端必须用同一个全名当键：`moduleRegistry.extend("game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx", "selectedInfoSectionComponents", m => ({...m, "<C# 类全名>": Comp}))` | `research/dumps/Game_UI_InGame_InfoSectionBase.cs:123-140`、`Game_UI_InGame_SelectedInfoUISystem.cs:111/255`；先例：已上架的 AdvancedBuildingControl（它的 `.mjs` 里就是 `map["AdvancedBuildingControl.Systems.SIP_ABC"]`） |
+| 运行时槽位有 **8** 个（含 `GameBottomLeft`）：Menu / Editor / Game / GameTopLeft / GameTopRight / GameBottomLeft / GameBottomRight / UniversalModMenu —— 官方模板的 `modding.d.ts` 少写了一个，以 bundle 为准 | 游戏 UI bundle 里 `ModdingHook` 注册表逐个数（0.4.0 复核） |
+| `1u = 8m × 8m = 64 ㎡`（一个可划分单元格）；`1 地图区块 = 14336/23 = 623.3043478m` 见方 = `388508.31 ㎡ ≈ 6070.44u`（不是整数，所以界面一律写「≈」） | `ZoneUtils.CELL_SIZE=8f / CELL_AREA=64f`、`Game.Areas.MapTileSystem.LEGACY_CELL_SIZE=623.3043f`、`MapTilePurchaseSystem.kMapTileSizeModifier=1/623.3043478²` |
+| 地形高度图是 `4096²` 采样铺满 `14336m` ⇒ 一个采样点 ≈ `3.5m`，**不等于 1u**；读法 `TerrainSystem.GetHeightData(true)` + `TerrainUtils.SampleHeight` | `research/dumps/`（TerrainHeightData / TerrainSystem） |
+| 采集没有 manager：区域边界 = `DynamicBuffer<Game.Areas.Node>`，四类四叉树 = `Game.{Net,Objects,Zones,Areas}.SearchSystem.Get*SearchTree()`，用法照 ZoneSnapper 的 `WorldSampler.cs`（`deps.Complete()` → `AddNetSearchTreeReader` → `tree.Iterate(ref gather)`），迭代器必须同时实现 `INativeQuadTreeIterator` 与 `IUnsafeQuadTreeIterator` | `research/dumps/`、ZoneSnapper 源码 |
+| 玩家的 SteamID64 **拿不到**：PSI 只暴露 `Social.DisplayName`。所以 `authorId = sha256(userSpecificPath / 设备号)` 前 16 位十六进制，`bpId = b<GUID>-<authorId>` —— 不把账号号编进公开仓库每张 meta.json | `research/PdxSdkPlatform.cs`、`Bpc/BlueprintId.cs` |
+
+## 上传这条链怎么跑（0.4.0）
+游戏里点「生成蓝图」到「工坊里能看到」一共四步，**跨两台机器、一个公共仓库**，中间没有任何凭据：
+
+1. **采集**（`Workshop/DistrictCapture.cs`）：选中市辖区 → 读边界环、四类四叉树、地形相对高差、资产表；每类都有条数上限（`CaptureModel.MAX_*`），超了直接失败，并把「哪一类、多少、上限多少」交给词条 `DUPLOAD_TOO_BIG`（上限是**条目数**，不是面积）。
+2. **打包**（`Bpc/BpcCodec.cs` + `MetaWriter.cs` + `CoverSvg.cs`）：五节各自编码成 `BPC1` 定长记录块，按 sha256 前 16 位内容寻址；`meta.json` 只写 schema 要求的字段，封面是一张自绘 SVG。
+3. **落草稿**（`Workshop/UploadService.cs`）：写到 `ModsData/BlueprintHub/drafts/<bpId>/`，**到此为止** —— 模组不持有任何能写公共仓库的凭据（这是有意的：客户端里塞可写 token = 谁的仓库都能推）。
+4. **投递**（`scripts/ingest-draft.mjs`）：作者本机把草稿搬进工坊仓库（验 bpId/authorId 形状、逐节复算哈希、拒绝草稿目录里的陌生文件、同 ID 不同内容硬失败），再跑工坊的 `tools/build-catalog.mjs` 重建索引，最后由人 `git push`。
+
+**临时文件**（作者点名要自动清理）：载入时 `LocalLibrary.PurgeTemp()` 清整个 TempDir；面板关闭时再清一次（正在预览的封面用 pinned 名单保住）；封面缓存限量 240 个 / 160 MB，超了按最后访问时间淘汰；草稿箱只留最近 12 张；写入先落 `.tmp` 再改名，异常路径上 `.tmp` 必删；登出与卸载删掉头像缓存文件。上一版遗留的旧命名草稿/封面（bpId 换代之前的形状）也会被这一轮清理带走。
+
+## 本地怎么测（没有游戏也要测）
+| 闸门 | 命令 | 钉住什么 |
+|---|---|---|
+| 读侧算术 | `dotnet run --project tests/t3 -c Release` | 解析 / 排序 / 分页 / 量化 / 桥层键名，277 条断言；同一份 `Bpc/*.cs` 两边编，不写桩 |
+| 端到端投递 | `dotnet run --project tests/t3 -c Release -- --draft <目录>` → `node scripts/ingest-draft.mjs <该目录>` | 用**真的**编码链造一张草稿，再走 ingest + 工坊 builder：格式一改这条就会红 |
+| 文案 | `node tools/check-copy.mjs` | 三份词条表键集一致、没有裸 slug 上界面、没有硬编码句子、占位符白名单 |
+| CSS | `node tools/check-css.mjs` | Cohtml 吃不下的一切写法（shorthand 里的 `var()`、逗号兜底、data URI、未支持属性、token 白名单） |
+| 交互后状态 | `node tools/dev-preview.mjs &` 然后 `node tools/verify-ui.mjs` | 25 条 DOM 断言：下拉互斥、点外面收起、选中类型的定义、u 面积、上传四态、词条没漏 |
+| 实拍 | `node tools/shot.mjs` | 同一批状态出图（`?act=` 驱动页面自己点），给人眼复核布局 |
+| 有目录可读 | `node tools/seed-dev-catalog.mjs --yes-dev-data` | 假蓝图喂进**真的**工坊 builder 再复制成 dev-catalog，杜绝「开发机能跑、线上不能跑」 |
+
+这套全绿只说明**前端、桥层与数据面自洽**。ECS 采集、`InfoSectionBase` 注入、Cohtml 的字体与 rem 基准仍然只能实机验 —— 这三处是本仓库已知的、机器测不到的部分。
 
 ## 当前状态
-**0.3.1**（M0 + M1 完成，两轮实机反馈已修）：工程骨架、选项页、只读数据面客户端、Cohtml 面板壳与真实浏览
-（7 类、搜索、面积档、5 种排序、5×3 分页、点赞/套用本机去重、封面 coui、加载中/空/无结果/失败四态）；
-0.3.0 那轮改了上手观感与接线（透明度滑条真正生效、右上角图标按钮、卡片加大、文案全量走词条、移除内置假蓝图），
-但入口方块和面板描边在实机上是坏的；0.3.1 把这两条按游戏自己的做法重做：
-入口 = 官方 `FloatingButton` + 随包 `.svg` 图案 + 外层只占位不伸缩（与邻居自动排成一排），
-面板 = CSS 全面过一遍 Cohtml 能吃的写法，并新增 `tools/check-css.mjs` 把规则钉成门禁。
-M2/M3 待做：蓝图详情与套用、**采集导出 + 上传**（这才是"流程打通"的另一半）、草稿箱、账号页。
+**0.4.0**（M0 + M1 + M3 的采集导出段完成）：在 0.3.1 的只读浏览之上，这一版按作者点名的九条改完并本地测过：
+透明度默认 90%；**市辖区面板底部出现「上传蓝图」**（零 Harmony 的 `InfoSectionBase` 注入 + 前端 `moduleRegistry.extend`），
+采集 → 打包 → 本机草稿箱这条链跑通（`scripts/ingest-draft.mjs` 补上最后一米）；右上角改成**账号按钮**（未登录「登录」/登录后头像）
+并在左边挂一句提示；面积一律按 **u** 讲（三档重划 + 换算提示）；排序扩到 **8 项**（新增 createdAt 契约字段）；
+社区类型改成 **全部 + 7 类**（产业区 / 文教区 / 交通枢纽区 / 公共服务区，去掉混合区），选中类型的定义说明挪到左栏清单下方；
+两个筛选下拉互斥且点外面即收起。安全与稳定性按作者要求过了一遍（见「上传这条链怎么跑」末尾）。
+
+M2/M4 待做：蓝图详情与**套用**（spawn 道路是最难的一段）、草稿的一键投递（现在要作者本机跑脚本）、账号页。
 
 **上传仍按作者指示暂缓**：`ModPublisher Publish` 回 "You have too many private mods, max 3." —— 账号已有 3 个 Private 模组（公开 API 列不出 Private 条目，只列到 3 个 public）。内容包与命令都备好了（`node scripts/pull-live.mjs` 先核对线上 → `node scripts/publish.mjs`），等作者决定腾哪个名额；不擅自改 Public 绕过。
 桥接口形状已冻结（`GetState` + `Cmd`），M2/M3 只在 JSON 里加字段、在 `OnCmd` 里加分支，不加新绑定。

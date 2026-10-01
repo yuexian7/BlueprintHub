@@ -352,15 +352,10 @@ namespace BlueprintHub.Platform
             }
         }
 
+        /// <summary>分节哈希：算法只有一份，在 Bpc/BlueprintId.Hash16（纯逻辑层，t3 直接测它）。这里只是历史调用名。</summary>
         public static string ShortHashOf(byte[] data)
         {
-            using (var sha = SHA256.Create())
-            {
-                byte[] h = sha.ComputeHash(data ?? new byte[0]);
-                var sb = new StringBuilder(16);
-                for (int i = 0; i < 8; i++) sb.Append(h[i].ToString("x2", CultureInfo.InvariantCulture));
-                return sb.ToString();
-            }
+            return BlueprintId.Hash16(data);
         }
     }
 

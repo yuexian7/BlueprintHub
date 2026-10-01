@@ -83,7 +83,7 @@ export const PANEL_CSS = `
 .bph-search-on{border-color:rgba(122,211,245,0.85);background-color:rgba(255,255,255,0.07);}
 .bph-search input{flex:1 1 auto;background-color:rgba(0,0,0,0);border-width:0;color:#F0FBFF;
   font-size:14rem;margin-left:6rem;min-width:0;}
-.bph-drop{position:relative;margin-left:10rem;}
+.bph-drop{position:relative;margin-left:10rem;z-index:520;}
 .bph-drop-btn{display:flex;flex-direction:row;align-items:center;height:32rem;padding:0 10rem;border-radius:8rem;
   border:1rem solid rgba(150,178,200,0.28);background-color:rgba(255,255,255,0.04);cursor:pointer;font-size:13rem;white-space:nowrap;}
 .bph-drop-btn:hover{border-color:rgba(122,211,245,0.85);}
@@ -155,6 +155,70 @@ export const PANEL_CSS = `
 .bph-toast-err{border-left-color:var(--negativeColor);border-left-width:4rem;}
 .bph-toast-warn{border-left-color:var(--warningColor);border-left-width:4rem;}
 .bph-toast-ok{border-left-color:var(--positiveColor);border-left-width:4rem;}
+
+/* ---------- 顶栏：账号按钮 + 那一句淡蓝提示（需求 3/4）---------- */
+/* 提示语用字面量淡蓝而不是 var：它必须明显是「一句提醒」，跟主题色走会在橙色主题下变成橙字 */
+.bph-share{font-size:12rem;color:#7ec8f2;margin-right:14rem;white-space:nowrap;}
+.bph-avatar{width:34rem;height:34rem;border-radius:7rem;cursor:pointer;display:block;
+  border:1rem solid rgba(150,178,200,0.38);}
+.bph-avatar-box{width:34rem;height:34rem;flex:0 0 34rem;border-radius:7rem;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;border:1rem solid rgba(150,178,200,0.38);background-color:rgba(255,255,255,0.06);}
+.bph-avatar-dot{width:14rem;height:14rem;border-radius:7rem;background-color:var(--accentColorNormal);}
+.bph-login-box{height:34rem;min-width:60rem;padding:0 12rem;border-radius:8rem;display:flex;align-items:center;
+  justify-content:center;cursor:pointer;font-size:13rem;font-weight:bold;color:#08222a;background-color:var(--accentColorNormal);}
+.bph-login-box:hover{background-color:var(--accentColorNormal-hover);}
+
+/* ---------- 左栏底部：选中那一类的定义（需求 9）---------- */
+.bph-side-desc{margin:12rem 8rem 0 8rem;padding:9rem 10rem;border-radius:8rem;font-size:11.5rem;line-height:1.45;
+  color:#9fb0c0;background-color:rgba(255,255,255,0.04);border:1rem solid rgba(150,178,200,0.16);}
+
+/* ---------- 下拉遮罩（需求 5）：整屏一层透明 div，点哪儿都收；菜单自己的 .bph-drop 比它高一级 ---------- */
+.bph-drop-scrim{position:fixed;left:0;top:0;width:100%;height:100%;z-index:500;pointer-events:auto;}
+
+/* ---------- 市辖区面板底部那颗上传（需求 2，条目挂进游戏自己的 footer，所以尺寸按它那一排来）---------- */
+.bph-dpanel{display:flex;flex-direction:column;padding:4rem 10rem 8rem 10rem;}
+.bph-drow{display:flex;flex-direction:row;align-items:center;}
+.bph-btn-main{color:#08222a;font-weight:bold;background-color:var(--accentColorNormal);border-color:rgba(255,255,255,0.22);}
+.bph-btn-main:hover{background-color:var(--accentColorNormal-hover);border-color:rgba(255,255,255,0.34);}
+.bph-btn-main[disabled]{opacity:0.45;cursor:default;}
+.bph-btn-off{color:#F0FBFF;background-color:rgba(255,255,255,0.06);}
+.bph-btn+.bph-btn{margin-left:8rem;}
+.bph-btn span{margin-left:5rem;}
+.bph-darea{font-size:11.5rem;color:#7ec8f2;margin-left:10rem;white-space:nowrap;}
+.bph-dneed{font-size:11rem;color:var(--warningColor);margin-left:10rem;white-space:nowrap;}
+.bph-form{display:flex;flex-direction:column;}
+.bph-form-row{display:flex;flex-direction:row;align-items:flex-start;margin-top:6rem;}
+/* 标签列宽：预览台实拍抓出来的 —— 74rem 装不下「简介（可留空）」七个字，中文标签会折行。
+   88rem 让 zh/zh-TW 单行放平；英文 "Description (optional)" 仍会折两行，align-items 是 flex-start，
+   折行只往下长，不会把输入框挤歪。 */
+.bph-form-label{font-size:11.5rem;color:#9fb0c0;width:88rem;flex:0 0 88rem;margin-right:8rem;}
+.bph-input{flex:1 1 auto;height:28rem;padding:0 8rem;border-radius:6rem;font-size:12.5rem;color:#F0FBFF;min-width:0;
+  border:1rem solid rgba(150,178,200,0.28);background-color:rgba(255,255,255,0.05);}
+.bph-textarea{height:46rem;padding:5rem 8rem;}
+.bph-chips{display:flex;flex-direction:row;flex-wrap:wrap;flex:1 1 auto;}
+.bph-chip{font-size:11.5rem;padding:3rem 8rem;margin:2rem;border-radius:6rem;cursor:pointer;color:#c9d7e4;
+  border:1rem solid rgba(150,178,200,0.24);background-color:rgba(255,255,255,0.04);}
+.bph-chip-on{color:#F0FBFF;font-weight:bold;background-color:var(--selectedColor);border-color:rgba(255,255,255,0.20);}
+.bph-form-foot{display:flex;flex-direction:row;align-items:center;margin-top:9rem;}
+.bph-done{display:flex;flex-direction:column;}
+.bph-done-title{font-size:12rem;color:#cfe6f5;line-height:1.4;}
+.bph-warn-line{display:flex;flex-direction:row;align-items:center;font-size:11.5rem;color:var(--warningColor);margin-top:5rem;}
+.bph-warn-line svg{margin-right:5rem;}
+.bph-hint-line{font-size:11rem;color:#9fb0c0;margin-top:5rem;line-height:1.4;}
+.bph-path-row{display:flex;flex-direction:row;align-items:center;margin-top:7rem;}
+.bph-path{font-size:10.5rem;color:#cfe6f5;}
+.bph-fail{display:flex;flex-direction:row;align-items:center;font-size:11.5rem;color:var(--negativeColor);line-height:1.4;}
+.bph-fail svg{margin-right:5rem;}
+.bph-busy{display:flex;flex-direction:row;align-items:center;font-size:11.5rem;color:#9fb0c0;}
+.bph-busy svg{margin-right:6rem;}
+
+/* ---------- 主面板里的兜底：游戏条目没挂上时才出现（不把玩家堵死）---------- */
+.bph-fallback{display:flex;flex-direction:column;margin:10rem 14rem 0 14rem;padding:10rem 12rem;border-radius:9rem;
+  border:1rem solid rgba(150,178,200,0.20);background-color:rgba(126,200,242,0.08);}
+.bph-fallback-title{font-size:12.5rem;color:#7ec8f2;line-height:1.4;}
+.bph-fallback-body{display:flex;flex-direction:row;align-items:center;margin-top:8rem;}
+.bph-fail-inline{font-size:11.5rem;color:var(--negativeColor);margin-left:12rem;}
+.bph-ok-inline{font-size:11rem;color:#9fb0c0;margin-left:12rem;}
 
 /* ---------- 入口方块（GameTopLeft）---------- */
 /* 外层只负责「在自动排列的那一行里占住自己、不伸不缩」：

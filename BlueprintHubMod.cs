@@ -20,7 +20,7 @@ namespace BlueprintHub
     public class BlueprintHubMod : IMod
     {
         /// <summary>与 Properties/PublishConfiguration.xml 的 &lt;ModVersion&gt; 一致，由 scripts/verify.mjs 钉死。</summary>
-        public const string kVersion = "0.3.1";
+        public const string kVersion = "0.4.0";
 
         public const string MOD_NAME = nameof(BlueprintHub);
 
@@ -29,6 +29,12 @@ namespace BlueprintHub
         public static BlueprintHubMod Instance { get; private set; }
 
         public static bool PanelVisible { get; set; }
+
+        /// <summary>
+        /// 「非目录数据变了」的计数器：账号状态、采集相位、市辖区选中项都往它 +1，
+        /// 桥层的 getter 拿它参与缓存判据（目录自己的 Seq 只管列表，管不到这些）。
+        /// </summary>
+        public static volatile int StateEpoch;
 
         private BlueprintHubSetting m_Setting;
         private ProxyAction m_TogglePanelAction;

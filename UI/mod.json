@@ -2,8 +2,8 @@
   "id": "BlueprintHub",
   "displayName": "Blueprint Hub",
   "author": "yuexian",
-  "version": "0.3.1",
-  "description": "Share and apply district blueprints: roads, terrain, buildings and props",
+  "version": "0.4.0",
+  "description": "Browse, share and apply district blueprints: roads, terrain, buildings, props and zoning",
   "isCodeMod": true,
   "dependencies": []
 }
